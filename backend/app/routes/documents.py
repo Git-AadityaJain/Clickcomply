@@ -7,11 +7,12 @@ Endpoints:
     GET  /documents                — List all documents (for the dashboard).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.logging import logger
+from app.core.config import settings
 from app.schemas.document import (
     DocumentIngestRequest,
     DocumentIngestResponse,
@@ -22,6 +23,7 @@ from app.services.document_service import (
     ingest_document,
     get_document_by_id,
     get_all_documents,
+    save_document_file,
 )
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -101,3 +103,72 @@ async def list_documents(
     """Return all documents for the dashboard table."""
     documents = await get_all_documents(db)
     return [DocumentListItem.model_validate(doc) for doc in documents]
+
+
+@router.post(
+    "/{document_id}/upload",
+    response_model=DocumentListItem,
+    status_code=status.HTTP_200_OK,
+    summary="Upload a file for a document",
+    description=(
+        "Accepts a file upload for an existing document, "
+        "saves it to disk, and updates document metadata "
+        "(file size, timestamp, IP, original filename, stored filename)."
+    ),
+)
+async def upload_file(
+    document_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    request=None,
+) -> DocumentListItem:
+    """Upload and save a file for a document."""
+    try:
+        # Validate file exists
+        if not file.filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must have a filename",
+            )
+
+        # Check file size
+        content = await file.read()
+        if len(content) > settings.MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum size: {settings.MAX_FILE_SIZE} bytes",
+            )
+
+        # Get uploader IP from request headers if available
+        uploader_ip = None
+        if request:
+            uploader_ip = request.client.host if request.client else None
+
+        logger.info(
+            f"File upload for document {document_id}: {file.filename} ({len(content)} bytes)"
+        )
+
+        # Save file and update metadata
+        document = await save_document_file(
+            db=db,
+            document_id=document_id,
+            file_content=content,
+            original_filename=file.filename,
+            uploader_ip=uploader_ip,
+        )
+
+        logger.info(f"File saved successfully for document {document_id}")
+
+        return DocumentListItem.model_validate(document)
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except IOError as e:
+        logger.error(f"Failed to save file for document {document_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save file to server",
+        )

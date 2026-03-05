@@ -51,5 +51,10 @@ class DocumentListItem(BaseModel):
     document_type: str
     status: str
     created_at: datetime
+    file_size: int | None = None
+    upload_timestamp: datetime | None = None
+    uploader_ip: str | None = None
+    original_filename: str | None = None
+    stored_filename: str | None = None
 
     model_config = {"from_attributes": True}

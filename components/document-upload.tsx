@@ -3,7 +3,7 @@
 import { useState, useRef } from "react"
 import { Upload, FileText, CheckCircle2, Clock, Cpu, X, AlertCircle } from "lucide-react"
 import { useSWRConfig } from "swr"
-import { ingestDocument } from "@/lib/api"
+import { ingestDocument, uploadDocumentFile } from "@/lib/api"
 import {
   Card,
   CardContent,
@@ -86,17 +86,21 @@ export function DocumentUpload() {
         ? "privacy_policy"
         : "general_document"
 
-      const result = await ingestDocument({
+      // Step 1: Ingest document metadata
+      const ingestResult = await ingestDocument({
         document_name: selectedFile.name,
         document_type: docType,
       })
 
       setStage("queued")
 
-      // Simulate the transition to awaiting (mirrors backend lifecycle)
+      // Step 2: Upload the actual file
+      await uploadDocumentFile(ingestResult.document_id, selectedFile)
+
+      // Step 3: Transition to awaiting
       setTimeout(() => {
         setStage("awaiting")
-        // Revalidate the documents list so the table updates
+        // Revalidate the documents list so the table updates with file metadata
         mutate("/documents")
       }, 1500)
     } catch (err) {

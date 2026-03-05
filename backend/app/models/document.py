@@ -8,7 +8,7 @@ Actual file content is NOT stored — this table records ingestion metadata only
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime
+from sqlalchemy import String, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -43,6 +43,15 @@ class Document(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+    # File upload metadata
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    upload_timestamp: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    uploader_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stored_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # One-to-many relationship with analysis results
     analysis_results: Mapped[list["AnalysisResult"]] = relationship(

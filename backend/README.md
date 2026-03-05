@@ -26,7 +26,7 @@ backend/
 │   │   ├── documents.py         # POST /documents/ingest, GET /documents/{id}/status
 │   │   └── analysis.py          # GET /analysis/{document_id}
 │   ├── services/
-│   │   ├── document_service.py  # Document business logic
+│   │   ├── document_service.py  # Document business logic (ingest, retrieve, save)
 │   │   ├── analysis_service.py  # Analysis orchestration
 │   │   └── ai_placeholder.py   # ** THE ONLY FILE TO REPLACE FOR AI **
 │   ├── dpdp/
@@ -34,7 +34,8 @@ backend/
 │   │   ├── dpdp_rules.py       # Compliance rule definitions
 │   │   └── compliance_checks.py # Per-section check stubs
 │   └── utils/
-│       └── helpers.py           # Shared utility functions
+│       ├── helpers.py           # Shared utility functions
+│       └── file_utils.py        # File upload, storage, and metadata helpers
 ├── requirements.txt
 └── README.md
 ```
@@ -56,6 +57,7 @@ The API will be available at `http://localhost:8000`. Interactive docs at `http:
 | Method | Endpoint                      | Description                        |
 |--------|-------------------------------|------------------------------------|
 | POST   | `/documents/ingest`           | Ingest a new document (metadata)   |
+| POST   | `/documents/{id}/upload`      | Upload file & save metadata        |
 | GET    | `/documents/{id}/status`      | Get document processing status     |
 | GET    | `/documents`                  | List all documents                 |
 | GET    | `/analysis/{document_id}`     | Get compliance analysis (placeholder) |
@@ -87,8 +89,17 @@ Defaults to SQLite (via `aiosqlite`) for local development. Set `DATABASE_URL` i
 
 ### Tables
 
-- **documents**: `id`, `document_name`, `document_type`, `status`, `created_at`
+- **documents**: `id`, `document_name`, `document_type`, `status`, `created_at`, `file_size`, `upload_timestamp`, `uploader_ip`, `original_filename`, `stored_filename`
 - **analysis_results**: `id`, `document_id` (FK), `analysis_status`, `summary`, `created_at`
+
+### File Upload Storage
+
+Uploaded files are stored in the `backend/uploads/` directory with UUID-based names to prevent collisions. Original filenames are preserved in the `documents` table for auditing:
+
+- **Original filename** (user's file): Stored in `original_filename` column
+- **Stored filename** (UUID-based): Stored in `stored_filename` column and used for disk storage
+- **Storage location**: `backend/uploads/{stored_filename}`
+- **Metadata tracked**: File size, upload timestamp (UTC), uploader IP
 
 ## Environment Variables
 
@@ -98,3 +109,56 @@ Defaults to SQLite (via `aiosqlite`) for local development. Set `DATABASE_URL` i
 | `HOST`         | `0.0.0.0`                           | Server bind address   |
 | `PORT`         | `8000`                               | Server port           |
 | `DEBUG`        | `true`                               | Enable debug logging  |
+| `UPLOAD_DIR`   | `./backend/uploads`                  | Directory for file uploads |
+| `MAX_FILE_SIZE` | `50000000`                          | Maximum file size in bytes (50 MB) |
+
+## File Upload Workflow
+
+The frontend submits documents in a two-step process:
+
+### Step 1: Ingest Metadata
+```bash
+POST /documents/ingest
+Content-Type: application/json
+
+{
+  "document_name": "privacy_policy.pdf",
+  "document_type": "privacy_policy"
+}
+
+Response (201 Created):
+{
+  "document_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "RECEIVED",
+  "message": "Document sensed and queued for compliance analysis"
+}
+```
+
+### Step 2: Upload File
+```bash
+POST /documents/{document_id}/upload
+Content-Type: multipart/form-data
+
+file: <binary PDF/DOCX data>
+
+Response (200 OK):
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "document_name": "privacy_policy.pdf",
+  "document_type": "privacy_policy",
+  "status": "QUEUED_FOR_ANALYSIS",
+  "created_at": "2026-03-05T10:00:00Z",
+  "file_size": 245632,
+  "upload_timestamp": "2026-03-05T10:15:00Z",
+  "uploader_ip": "203.0.113.42",
+  "original_filename": "privacy_policy.pdf",
+  "stored_filename": "a7f2e9c1-privacy_policy.pdf"
+}
+```
+
+### Storage Details
+- **Uploads directory**: Created automatically at `backend/uploads/` on startup
+- **File naming**: UUID-based (e.g., `a7f2e9c1-privacy_policy.pdf`) to prevent collisions
+- **Metadata**: Both original and stored filenames are tracked for auditing
+- **Size validation**: Files exceeding `MAX_FILE_SIZE` are rejected with 413 Payload Too Large
+- **IP tracking**: Uploader IP is captured from HTTP request headers (if available)

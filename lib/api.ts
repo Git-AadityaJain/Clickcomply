@@ -31,6 +31,11 @@ export interface DocumentListItem {
   document_type: string
   status: string
   created_at: string
+  file_size?: number
+  upload_timestamp?: string
+  uploader_ip?: string
+  original_filename?: string
+  stored_filename?: string
 }
 
 export interface ComplianceGap {
@@ -94,6 +99,24 @@ export async function getAnalysis(
   const res = await fetch(`${API_BASE}/analysis/${documentId}`)
   if (!res.ok) {
     throw new Error(`Analysis fetch failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+/** POST /documents/{document_id}/upload */
+export async function uploadDocumentFile(
+  documentId: string,
+  file: File
+): Promise<DocumentListItem> {
+  const formData = new FormData()
+  formData.append("file", file)
+
+  const res = await fetch(`${API_BASE}/documents/${documentId}/upload`, {
+    method: "POST",
+    body: formData,
+  })
+  if (!res.ok) {
+    throw new Error(`File upload failed: ${res.status} ${res.statusText}`)
   }
   return res.json()
 }

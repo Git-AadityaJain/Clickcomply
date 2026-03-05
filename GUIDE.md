@@ -43,13 +43,16 @@ npm --version
 # Expected output: 10.x.x or higher
 ```
 
-### Python 3.13 (Recommended)
+### Python 3.10+
 
-Python 3.13 is used for the ClickComply backend to ensure compatibility with the latest language features and performance improvements.
+Python is required for the FastAPI backend.
 
 ```bash
 python --version
-# Expected output: Python 3.13.x
+# Expected output: Python 3.10.x or higher (3.11, 3.12 also supported)
+```
+
+If not installed, download from [https://www.python.org/downloads](https://www.python.org/downloads). On macOS/Linux, you may need to use `python3` instead of `python`.
 
 ### pip
 
@@ -161,29 +164,22 @@ venv\Scripts\Activate.ps1
 
 When activated, you will see `(venv)` at the beginning of your terminal prompt.
 
-### Step 4: Install Backend Dependencies (Python 3.13 Safe)
-
-To ensure compatibility with Python 3.13 on Windows, install dependencies using **binary wheels only**:
+### Step 4: Install Dependencies
 
 ```bash
-pip install --upgrade pip setuptools wheel
-pip install --only-binary=:all: -r requirements.txt
+pip install -r requirements.txt
 ```
+
 This installs the following packages:
 
-```md
-### Backend Dependency Stack (Verified for Python 3.13)
-
 | Package | Version | Purpose |
-|------|------|--------|
-| fastapi | 0.111.0 | API framework |
-| uvicorn | 0.30.1 | ASGI server |
-| sqlalchemy | 2.0.31 | Async ORM |
-| greenlet | >=3.0.3 | Required for SQLAlchemy async |
+|---------|---------|---------|
+| fastapi | 0.111.0 | Web framework for building APIs |
+| uvicorn | 0.30.1 | ASGI server to run the FastAPI app |
+| sqlalchemy | 2.0.31 | ORM for database operations |
+| pydantic | 2.7.4 | Data validation and serialization |
 | aiosqlite | 0.20.0 | Async SQLite driver |
-| pydantic | 2.8.2 | Data validation (Python 3.13 compatible) |
-| python-dotenv | 1.0.1 | Environment configuration |
-| email-validator | >=2.0.0 | Email validation support |
+| python-dotenv | 1.0.1 | Environment variable loading |
 
 ### Step 5: Configure the Database
 
@@ -197,13 +193,6 @@ DATABASE_URL=postgresql+asyncpg://username:password@localhost:5432/clickcomply
 
 Note: PostgreSQL requires the `asyncpg` package (`pip install asyncpg`).
 
-### Why `greenlet` Is Required
-
-Although ClickComply uses an async database engine, SQLAlchemy internally relies on the `greenlet` library to safely bridge synchronous and asynchronous execution contexts.
-
-Without `greenlet`, the application will fail during startup with:
-
-
 ### Step 6: Start the FastAPI Server
 
 ```bash
@@ -215,11 +204,7 @@ Expected terminal output:
 ```
 INFO:     Started server process
 INFO:     Starting ClickComply v1.0.0
-### Expected Startup Output
-
-```text
-INFO:     Starting ClickComply v1.0.0
-INFO:     Application startup complete.
+INFO:     Database tables initialized
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 ```
 
@@ -493,17 +478,6 @@ In the **Compliance Summary** panel, you will see:
 
 ## 8. Common Errors & Fixes
 
-```md
-### Error: `greenlet` Not Found
-
-
-**Cause:**
-`greenlet` is required by SQLAlchemy’s async engine but was not installed.
-
-**Fix:**
-```bash
-pip install greenlet
-
 ### Backend Not Running
 
 **Symptom:** The frontend upload card shows "Failed to submit document. Is the backend running?" or the documents table shows fallback demo data.
@@ -660,13 +634,11 @@ These modules are ready to be wired into the AI pipeline when the engine is conn
 
 ## Summary
 
-| Task | Command |
-|----|-------|
-| Create venv | `python -m venv venv` |
-| Activate venv (Windows) | `venv\Scripts\Activate.ps1` |
-| Install dependencies | `pip install --only-binary=:all: -r requirements.txt` |
-| Start backend | `uvicorn app.main:app --reload` |
-| API docs | `http://localhost:8000/docs` |
-| Start frontend | `npm run dev` |
+| Task | Command | URL |
+|------|---------|-----|
+| Start backend | `cd backend && uvicorn app.main:app --reload` | `http://localhost:8000` |
+| View API docs | (backend must be running) | `http://localhost:8000/docs` |
+| Start frontend | `npm run dev` | `http://localhost:3000` |
+| Health check | `curl http://localhost:8000/` | JSON response |
 
 Both servers must be running simultaneously for the full application to function. The backend handles data persistence and API logic; the frontend provides the user interface. AI analysis is architecturally ready but intentionally deferred to a future phase.

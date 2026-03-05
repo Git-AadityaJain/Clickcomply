@@ -40,5 +40,9 @@ class Settings:
         "http://127.0.0.1:3000",
     ]
 
+    # File upload settings
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./backend/uploads")
+    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "50_000_000"))  # 50 MB default
+
 
 settings = Settings()
