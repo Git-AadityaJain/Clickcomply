@@ -7,7 +7,7 @@ Endpoints:
     GET  /documents                — List all documents (for the dashboard).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -120,7 +120,7 @@ async def upload_file(
     document_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    request=None,
+    request: Request,
 ) -> DocumentListItem:
     """Upload and save a file for a document."""
     try:
