@@ -1,5 +1,5 @@
 """
-Compliance check orchestration — delegates to the RAG+LLM analysis pipeline.
+Compliance check orchestration: delegates to the RAG+LLM analysis pipeline.
 
 Per-rule evaluation is performed inside ai_service.run_compliance_analysis().
 This module exposes helpers for future granular check APIs.

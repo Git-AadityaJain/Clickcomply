@@ -1,31 +1,68 @@
 "use client"
 
-import useSWR from "swr"
-import { Shield, Activity } from "lucide-react"
+import { Shield, Activity, CircleHelp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { useBackendHealth } from "@/lib/hooks/use-backend-health"
+import type { HealthResponse } from "@/lib/api"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+function formatProviderLabel(engine?: string): string {
+  if (!engine) return "unknown"
+  return engine.charAt(0).toUpperCase() + engine.slice(1)
+}
 
-interface HealthResponse {
-  ai?: {
-    status?: string
-    ai_engine?: string
-    message?: string
-    model?: string
+function formatAiStatusLabel(
+  isOnline: boolean,
+  isLoading: boolean,
+  health?: HealthResponse
+): { label: string; ready: boolean } {
+  if (!isOnline) {
+    return { label: "Backend offline", ready: false }
+  }
+  if (isLoading && !health) {
+    return { label: "Connecting to backend…", ready: false }
+  }
+
+  const ai = health?.ai
+  if (!ai) {
+    return { label: "AI status unknown", ready: false }
+  }
+
+  const provider = formatProviderLabel(ai.ai_engine)
+  const modelSuffix = ai.model ? ` · ${ai.model}` : ""
+
+  if (ai.status === "READY") {
+    return {
+      label: `AI Engine Active (${provider}${modelSuffix})`,
+      ready: true,
+    }
+  }
+  if (ai.status === "NOT_CONFIGURED") {
+    return {
+      label: ai.message ?? `AI not configured (${provider})`,
+      ready: false,
+    }
+  }
+  if (ai.status === "ERROR") {
+    return {
+      label: ai.message ?? `AI engine error (${provider})`,
+      ready: false,
+    }
+  }
+
+  return {
+    label: ai.message ?? `AI engine (${provider})`,
+    ready: false,
   }
 }
 
 export function DashboardHeader() {
-  const { data } = useSWR<HealthResponse>(
-    "/health-ai",
-    () => fetch(`${API_BASE}/health`).then((r) => r.json()),
-    { revalidateOnFocus: false, refreshInterval: 30000 }
+  const { health, isOnline, isLoading } = useBackendHealth()
+  const { label: aiLabel, ready: aiReady } = formatAiStatusLabel(
+    isOnline,
+    isLoading,
+    health
   )
-
-  const aiReady = data?.ai?.status === "READY"
-  const aiLabel = aiReady
-    ? `AI Engine Active (Ollama · ${data?.ai?.model ?? "local"})`
-    : "Start Ollama — see backend/.env.example"
 
   return (
     <header className="border-b border-border bg-card">
@@ -40,11 +77,24 @@ export function DashboardHeader() {
                 ClickComply
               </h1>
               <p className="text-sm text-muted-foreground">
-                Compliance Dashboard
+                DPDP policy review
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground"
+              onClick={() =>
+                document
+                  .getElementById("help-faq")
+                  ?.scrollIntoView({ behavior: "smooth" })
+              }
+            >
+              <CircleHelp className="h-4 w-4" />
+              Help
+            </Button>
             <Badge
               variant="outline"
               className={
@@ -56,15 +106,11 @@ export function DashboardHeader() {
               <Activity className="h-3 w-3" />
               {aiLabel}
             </Badge>
-            <Badge variant="secondary" className="font-mono text-xs">
-              DPDP Act 2023
+            <Badge variant="secondary" className="text-xs font-medium">
+              India DPDP Framework
             </Badge>
           </div>
         </div>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          AI-powered DPDP compliance — Upload policies for automated RAG-based
-          compliance review
-        </p>
       </div>
     </header>
   )

@@ -2,7 +2,7 @@
 
 Automated compliance review for documents against India's **Digital Personal Data Protection Act, 2023 (DPDP Act)**.
 
-Upload a privacy policy or similar document (PDF/DOCX). ClickComply extracts the text, searches it against DPDP Act 2023 and **DPDP Rules 2025** using vector RAG, and evaluates **16 compliance rules** with a local AI model. Results — gaps, severity, and recommendations — appear in a web dashboard.
+Upload a privacy policy or similar document (PDF/DOCX). ClickComply extracts the text, searches it against DPDP Act 2023 and **DPDP Rules 2025** using vector RAG, and evaluates **16 compliance rules** with a local AI model. Results (gaps, severity, and recommendations) appear in a web dashboard.
 
 **Free by default:** analysis runs on your machine via [Ollama](https://ollama.com). No API keys or cloud billing required.
 
@@ -67,7 +67,7 @@ Aligned with the **DPDP Act 2023** and **DPDP Rules 2025** (G.S.R. 846(E), Nov 2
 | Python | 3.10+ | FastAPI backend |
 | [Ollama](https://ollama.com) | Latest | Local LLM + embeddings (**required for analysis**) |
 
-**Supported files:** PDF, DOCX, DOC — max **50 MB** per file.
+**Supported files:** PDF, DOCX, DOC (max **50 MB** per file).
 
 **Ports used:** `3000` (frontend), `8000` (backend), `11434` (Ollama).
 
@@ -132,7 +132,7 @@ All three must be running for full analysis: **Ollama + backend + frontend**.
 1. Open `http://localhost:3000`
 2. Drag a PDF or DOCX onto the upload card (or click to browse)
 3. Click **Submit for Analysis**
-4. Watch the documents table — status moves through `QUEUED_FOR_ANALYSIS` → `ANALYZING` → `ANALYSIS_COMPLETE`
+4. Watch the documents table: status moves through `QUEUED_FOR_ANALYSIS` → `ANALYZING` → `ANALYSIS_COMPLETE`
 5. Click a row to open the **Compliance Summary** (gaps, recommendations, overall status)
 6. Use **Re-run analysis** if Ollama was offline during the first pass
 7. **Export** results as JSON or CSV from the compliance panel
@@ -154,7 +154,7 @@ All three must be running for full analysis: **Ollama + backend + frontend**.
 | `COMPLIANT` | No significant gaps found |
 | `NON_COMPLIANT` | One or more high-severity gaps |
 | `NEEDS_REVIEW` | Ambiguous or medium-severity items |
-| `ANALYZING` | Still running — panel auto-refreshes |
+| `ANALYZING` | Still running; panel auto-refreshes |
 
 ---
 
@@ -172,7 +172,7 @@ Defaults work out of the box with Ollama. To override, copy `backend/.env.exampl
 | `UPLOAD_DIR` | `backend/uploads/` | Stored upload files |
 | `MAX_FILE_SIZE` | `50000000` (50 MB) | Upload limit |
 
-**Frontend API URL** — if the backend is not on port 8000, create `.env.local` in the project root:
+**Frontend API URL:** if the backend is not on port 8000, create `.env.local` in the project root:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000

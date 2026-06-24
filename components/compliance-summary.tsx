@@ -27,6 +27,8 @@ import { useDashboard } from "@/components/dashboard-provider"
 import {
   getAnalysis,
   rerunAnalysis,
+  cancelAnalysis,
+  formatBackendUrl,
   type ComplianceAnalysisResponse,
 } from "@/lib/api"
 
@@ -77,19 +79,39 @@ function exportGapsCsv(
 }
 
 export function ComplianceSummary() {
-  const { selectedDocumentId } = useDashboard()
+  const { selectedDocumentId, isBackendOnline } = useDashboard()
   const { mutate } = useSWRConfig()
   const [rerunError, setRerunError] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const [isRerunning, setIsRerunning] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
 
   const { data, error, isLoading } = useSWR(
-    selectedDocumentId ? `/analysis/${selectedDocumentId}` : null,
+    isBackendOnline && selectedDocumentId
+      ? `/analysis/${selectedDocumentId}`
+      : null,
     () => getAnalysis(selectedDocumentId!),
     {
-      refreshInterval: (latest) => (shouldPollAnalysis(latest) ? 3000 : 0),
+      refreshInterval: (latest) =>
+        isBackendOnline && shouldPollAnalysis(latest) ? 3000 : 0,
       revalidateOnFocus: true,
     }
   )
+
+  async function handleCancel() {
+    if (!selectedDocumentId) return
+    setCancelError(null)
+    setIsCancelling(true)
+    try {
+      await cancelAnalysis(selectedDocumentId)
+      await mutate(`/analysis/${selectedDocumentId}`)
+      await mutate("/documents")
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Could not stop the check.")
+    } finally {
+      setIsCancelling(false)
+    }
+  }
 
   async function handleRerun() {
     if (!selectedDocumentId) return
@@ -106,22 +128,38 @@ export function ComplianceSummary() {
     }
   }
 
-  if (!selectedDocumentId) {
+  if (!isBackendOnline) {
+    const backendLabel = formatBackendUrl()
     return (
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <ClipboardList className="h-4 w-4 text-primary" />
-            Compliance Review Summary
+            Results
           </CardTitle>
-          <CardDescription>
-            Select a document from the table to view DPDP analysis
-          </CardDescription>
+          <CardDescription>Server offline</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Upload a policy document, then click a row in the documents table to
-            see compliance gaps and recommendations.
+            Connect to {backendLabel} to run checks.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!selectedDocumentId) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            Results
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Select a document from the table.
           </p>
         </CardContent>
       </Card>
@@ -157,16 +195,15 @@ export function ComplianceSummary() {
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <ClipboardList className="h-4 w-4 text-primary" />
-              Compliance Review Summary
+              Results
               {(isLoading || isAnalyzing || isRerunning) && (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               )}
             </CardTitle>
             <CardDescription>
-              DPDP Act gap analysis and compliance recommendations
-              {analysis?.rules_evaluated
-                ? ` · ${analysis.rules_evaluated} rules evaluated`
-                : ""}
+              {analysis?.rules_evaluated && !isAnalyzing
+                ? `${analysis.rules_evaluated} checks`
+                : "DPDP check"}
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -190,15 +227,15 @@ export function ComplianceSummary() {
                 </Button>
               </>
             )}
+            {isAnalyzing && (
+              <Button variant="outline" size="sm" onClick={handleCancel} disabled={isCancelling}>
+                Stop check
+              </Button>
+            )}
             {canRerun && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRerun}
-                disabled={isRerunning}
-              >
+              <Button variant="outline" size="sm" onClick={handleRerun} disabled={isRerunning}>
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                Re-run analysis
+                Check again
               </Button>
             )}
           </div>
@@ -207,7 +244,9 @@ export function ComplianceSummary() {
       <CardContent className="flex flex-col gap-6">
         {error && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            Failed to load analysis: {error.message}
+            {error.message.includes("reach the server")
+              ? error.message
+              : `Could not load compliance results. ${error.message}`}
           </div>
         )}
 
@@ -217,13 +256,19 @@ export function ComplianceSummary() {
           </div>
         )}
 
+        {cancelError && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {cancelError}
+          </div>
+        )}
+
         {isAnalyzing && (
           <div className="flex flex-col gap-2 rounded-lg border border-primary/20 bg-primary/5 p-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="font-medium text-foreground">Analysis in progress</span>
+              <span className="font-medium text-foreground">Checking your policy…</span>
               {analysis?.progress ? (
                 <span className="text-muted-foreground">
-                  Rule {analysis.progress.current} of {analysis.progress.total}
+                  Step {analysis.progress.current} of {analysis.progress.total}
                 </span>
               ) : (
                 <span className="text-muted-foreground">Starting…</span>
@@ -231,11 +276,7 @@ export function ComplianceSummary() {
             </div>
             <Progress value={progressPercent} className="h-2" />
             {analysis?.progress && (
-              <p className="text-xs text-muted-foreground">
-                <span className="font-mono">{analysis.progress.rule_id}</span>
-                {" — "}
-                {analysis.progress.rule_label}
-              </p>
+              <p className="text-xs text-muted-foreground">{analysis.progress.rule_label}</p>
             )}
           </div>
         )}
@@ -258,7 +299,7 @@ export function ComplianceSummary() {
             <div className="flex flex-col gap-3">
               <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <AlertTriangle className="h-4 w-4 text-warning-foreground" />
-                Identified Gaps
+                Issues found
                 <span className="text-muted-foreground">
                   ({analysis.identified_gaps.length})
                 </span>
@@ -294,7 +335,7 @@ export function ComplianceSummary() {
             <div className="flex flex-col gap-3">
               <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Lightbulb className="h-4 w-4 text-primary" />
-                Recommendations
+                Suggested fixes
                 <span className="text-muted-foreground">
                   ({analysis.recommendations.length})
                 </span>
@@ -349,12 +390,23 @@ function StatusBadge({ status }: { status: string }) {
     NEEDS_REVIEW: "border-warning/30 bg-warning/10 text-warning-foreground",
     ANALYZING: "border-primary/30 bg-primary/10 text-primary",
     PENDING_AI_REVIEW: "border-muted-foreground/30 bg-muted text-muted-foreground",
+    ANALYSIS_CANCELLED: "border-muted-foreground/30 bg-muted text-muted-foreground",
     ANALYSIS_FAILED: "border-destructive/30 bg-destructive/10 text-destructive",
+  }
+
+  const labels: Record<string, string> = {
+    COMPLIANT: "Looks good",
+    NON_COMPLIANT: "Needs work",
+    NEEDS_REVIEW: "Review suggested",
+    ANALYZING: "Checking…",
+    PENDING_AI_REVIEW: "Waiting",
+    ANALYSIS_FAILED: "Check failed",
+    ANALYSIS_CANCELLED: "Stopped",
   }
 
   return (
     <Badge variant="outline" className={config[status] ?? config.PENDING_AI_REVIEW}>
-      {status.replace(/_/g, " ")}
+      {labels[status] ?? status.replace(/_/g, " ")}
     </Badge>
   )
 }

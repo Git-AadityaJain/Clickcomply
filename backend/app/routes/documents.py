@@ -1,13 +1,11 @@
 """
 Document API routes.
-
-Endpoints:
-    POST /documents/ingest         — Ingest a new document (metadata only).
-    GET  /documents/{id}/status    — Get the processing status of a document.
-    GET  /documents                — List all documents (for the dashboard).
 """
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -18,12 +16,24 @@ from app.schemas.document import (
     DocumentIngestResponse,
     DocumentStatusResponse,
     DocumentListItem,
+    DocumentRememberUpdate,
+    GeneratePolicyRequest,
+    GeneratePolicyResponse,
+    ApplicabilityResponse,
+    PruneSessionRequest,
+    PruneSessionResponse,
 )
+from app.services.session_storage_service import clear_ephemeral_uploads
+from app.schemas.org_profile import ApplicabilityReport
 from app.services.document_service import (
     ingest_document,
     get_document_by_id,
     get_all_documents,
     save_document_file,
+    set_document_remember,
+    generate_policy_file,
+    document_list_item_fields,
+    parse_org_profile,
 )
 from app.services.analysis_service import run_and_persist_analysis
 
@@ -31,8 +41,8 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
 def _display_status(status: str) -> str:
-    """Map internal DB status to frontend-facing labels."""
     mapping = {
+        "AWAITING_UPLOAD": "AWAITING_UPLOAD",
         "QUEUED_FOR_ANALYSIS": "AWAITING_AI_ANALYSIS",
         "ANALYZING": "ANALYZING",
         "ANALYSIS_COMPLETE": "ANALYSIS_COMPLETE",
@@ -41,94 +51,124 @@ def _display_status(status: str) -> str:
     return mapping.get(status, status)
 
 
-@router.post(
-    "/ingest",
-    response_model=DocumentIngestResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Ingest a new compliance document",
-    description=(
-        "Accepts document metadata, stores it in the database, "
-        "and queues it for compliance analysis. "
-        "No actual file upload occurs — this is a metadata-only endpoint."
-    ),
-)
+def _to_list_item(document) -> DocumentListItem:
+    item = DocumentListItem.model_validate(document)
+    extra = document_list_item_fields(document)
+    item.status = _display_status(item.status)
+    item.has_org_profile = extra["has_org_profile"]
+    item.has_generated_policy = extra["has_generated_policy"]
+    item.has_uploaded_file = extra["has_uploaded_file"]
+    return item
+
+
+@router.post("/ingest", response_model=DocumentIngestResponse, status_code=status.HTTP_201_CREATED)
 async def ingest(
     payload: DocumentIngestRequest,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentIngestResponse:
-    """Ingest a document and return its assigned UUID and status."""
-    logger.info(f"Ingest request: {payload.document_name} ({payload.document_type})")
-
-    document = await ingest_document(
+    logger.info(f"Ingest request: {payload.org_profile.legal_name}")
+    document, applicability = await ingest_document(
         db=db,
+        org_profile=payload.org_profile,
         document_name=payload.document_name,
         document_type=payload.document_type,
     )
-
     return DocumentIngestResponse(
         document_id=document.id,
-        status=document.status,
-        message="Document sensed and queued for compliance analysis",
+        status=_display_status(document.status),
+        message="Your answers were saved.",
+        generated_policy_available=False,
+        applicability=applicability,
     )
 
 
-@router.get(
-    "/{document_id}/status",
-    response_model=DocumentStatusResponse,
-    summary="Get document processing status",
-    description="Returns the current lifecycle status of a document.",
-)
-async def get_status(
-    document_id: str,
-    db: AsyncSession = Depends(get_db),
-) -> DocumentStatusResponse:
-    """Return the current status of a specific document."""
+@router.get("/{document_id}/status", response_model=DocumentStatusResponse)
+async def get_status(document_id: str, db: AsyncSession = Depends(get_db)) -> DocumentStatusResponse:
     document = await get_document_by_id(db, document_id)
-
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document {document_id} not found",
-        )
+        raise HTTPException(status_code=404, detail="Review not found.")
+    return DocumentStatusResponse(document_id=document.id, status=_display_status(document.status))
 
-    display_status = _display_status(document.status)
 
-    return DocumentStatusResponse(
-        document_id=document.id,
-        status=display_status,
+@router.get("", response_model=list[DocumentListItem])
+async def list_documents(db: AsyncSession = Depends(get_db)) -> list[DocumentListItem]:
+    documents = await get_all_documents(db)
+    return [_to_list_item(doc) for doc in documents]
+
+
+@router.post("/prune-session", response_model=PruneSessionResponse)
+async def prune_session(payload: PruneSessionRequest) -> PruneSessionResponse:
+    """Remove reviews not marked to keep (browser refresh / new visit)."""
+    removed_ids = await clear_ephemeral_uploads(set(payload.keep_document_ids))
+    return PruneSessionResponse(
+        removed_count=len(removed_ids),
+        removed_ids=removed_ids,
     )
 
 
-@router.get(
-    "",
-    response_model=list[DocumentListItem],
-    summary="List all documents",
-    description="Returns all documents ordered by creation date (newest first).",
-)
-async def list_documents(
+@router.get("/{document_id}/applicability", response_model=ApplicabilityResponse)
+async def get_applicability(document_id: str, db: AsyncSession = Depends(get_db)) -> ApplicabilityResponse:
+    document = await get_document_by_id(db, document_id)
+    if document is None or not document.applicability_json:
+        raise HTTPException(status_code=404, detail="Applicability information not found.")
+    report = ApplicabilityReport.model_validate_json(document.applicability_json)
+    return ApplicabilityResponse(document_id=document_id, report=report)
+
+
+@router.post("/{document_id}/generate-policy", response_model=GeneratePolicyResponse)
+async def post_generate_policy(
+    document_id: str,
+    payload: GeneratePolicyRequest,
     db: AsyncSession = Depends(get_db),
-) -> list[DocumentListItem]:
-    """Return all documents for the dashboard table."""
-    documents = await get_all_documents(db)
-    items = []
-    for doc in documents:
-        item = DocumentListItem.model_validate(doc)
-        item.status = _display_status(item.status)
-        items.append(item)
-    return items
+) -> GeneratePolicyResponse:
+    try:
+        document = await generate_policy_file(db, document_id, payload.format)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    profile = parse_org_profile(document)
+    return GeneratePolicyResponse(
+        document_id=document_id,
+        format=payload.format,
+        filename=document.generated_policy_filename or "",
+        legal_name=profile.legal_name if profile else document.document_name,
+    )
 
 
-@router.post(
-    "/{document_id}/upload",
-    response_model=DocumentListItem,
-    status_code=status.HTTP_200_OK,
-    summary="Upload a file for a document",
-    description=(
-        "Accepts a file upload for an existing document, "
-        "saves it to disk, and updates document metadata "
-        "(file size, timestamp, IP, original filename, stored filename)."
-    ),
-)
+@router.get("/{document_id}/suggested-policy/download")
+async def download_suggested_policy(document_id: str, db: AsyncSession = Depends(get_db)):
+    document = await get_document_by_id(db, document_id)
+    if document is None or not document.generated_policy_filename:
+        raise HTTPException(status_code=404, detail="No suggested policy file is available yet.")
+
+    path = Path(settings.UPLOAD_DIR) / document.generated_policy_filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Suggested policy file is missing.")
+
+    media = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if path.suffix == ".docx"
+        else "application/pdf"
+    )
+    return FileResponse(path, media_type=media, filename=path.name)
+
+
+@router.patch("/{document_id}/remember", response_model=DocumentListItem)
+async def update_remember(
+    document_id: str,
+    payload: DocumentRememberUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> DocumentListItem:
+    try:
+        document = await set_document_remember(db=db, document_id=document_id, remember=payload.remember)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _to_list_item(document)
+
+
+@router.post("/{document_id}/upload", response_model=DocumentListItem)
 async def upload_file(
     document_id: str,
     request: Request,
@@ -136,33 +176,15 @@ async def upload_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentListItem:
-    """Upload and save a file for a document."""
     try:
-        # Validate file exists
         if not file.filename:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must have a filename",
-            )
+            raise HTTPException(status_code=400, detail="Please choose a file to upload.")
 
-        # Check file size
         content = await file.read()
         if len(content) > settings.MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File too large. Maximum size: {settings.MAX_FILE_SIZE} bytes",
-            )
+            raise HTTPException(status_code=413, detail="That file is too large. Try a smaller PDF or Word document.")
 
-        # Get uploader IP from request headers if available
-        uploader_ip = None
-        if request:
-            uploader_ip = request.client.host if request.client else None
-
-        logger.info(
-            f"File upload for document {document_id}: {file.filename} ({len(content)} bytes)"
-        )
-
-        # Save file and update metadata
+        uploader_ip = request.client.host if request.client else None
         document = await save_document_file(
             db=db,
             document_id=document_id,
@@ -170,23 +192,10 @@ async def upload_file(
             original_filename=file.filename,
             uploader_ip=uploader_ip,
         )
-
-        logger.info(f"File saved successfully for document {document_id}")
-
         background_tasks.add_task(run_and_persist_analysis, document_id)
-
-        item = DocumentListItem.model_validate(document)
-        item.status = _display_status(item.status)
-        return item
-
+        return _to_list_item(document)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
+        raise HTTPException(status_code=404, detail=str(e))
     except IOError as e:
-        logger.error(f"Failed to save file for document {document_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save file to server",
-        )
+        logger.error(f"Failed to save file for document {document_id}: {e}")
+        raise HTTPException(status_code=500, detail="We could not save your file. Please try again.")

@@ -8,8 +8,8 @@ const _inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const _jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono" });
 
 export const metadata: Metadata = {
-  title: 'ClickComply - DPDP Compliance Dashboard',
-  description: 'AI-powered DPDP Act compliance platform for organizations. Upload policies, analyze compliance gaps, and manage regulatory requirements.',
+  title: 'ClickComply — DPDP Policy Review',
+  description: 'Upload a privacy policy for an automated DPDP compliance check.',
   generator: 'v0.app',
   icons: {
     icon: [

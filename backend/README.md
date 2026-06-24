@@ -73,15 +73,18 @@ The API will be available at `http://localhost:8000`. Interactive docs at `http:
 
 | Method | Endpoint                      | Description                        |
 |--------|-------------------------------|------------------------------------|
-| POST   | `/documents/ingest`           | Ingest a new document (metadata)   |
-| POST   | `/documents/{id}/upload`      | Upload file & save metadata        |
+| POST   | `/documents/ingest`           | Start review with `org_profile`; generates policy draft |
+| GET    | `/documents/{id}/generated-policy` | Ideal policy markdown from questionnaire |
+| GET    | `/documents/{id}/applicability` | DPDP rule applicability for this profile |
+| POST   | `/documents/{id}/analyze-draft` | Analyze generated draft (no upload) |
+| POST   | `/documents/{id}/upload`      | Optional: upload existing policy PDF/DOCX |
 | GET    | `/documents/{id}/status`      | Get document processing status     |
 | GET    | `/documents`                  | List all documents                 |
 | GET    | `/analysis/{document_id}`     | Get compliance analysis results    |
-| POST   | `/analysis/{document_id}/rerun` | Re-run analysis for uploaded file |
+| POST   | `/analysis/{document_id}/rerun` | Re-run analysis for current review |
 | GET    | `/health`                     | Health check with AI status        |
 
-## AI Engine (RAG + Ollama — free by default)
+## AI Engine (RAG + Ollama, free by default)
 
 ClickComply uses **ChromaDB** for vector RAG and **Ollama** for local LLM + embeddings. The knowledge base includes DPDP Act 2023 sections, 16 compliance rules, and **DPDP Rules 2025** policy provisions. No API keys or cloud billing required.
 
@@ -96,7 +99,7 @@ ClickComply uses **ChromaDB** for vector RAG and **Ollama** for local LLM + embe
 
 Optional: copy `backend/.env.example` to `backend/.env` to override models.
 
-Analysis runs automatically after each file upload. Results persist in `analysis_results`.
+Analysis runs after **Analyze draft** or after an optional file upload. Only DPDP rules applicable to the declared `org_profile` are evaluated. Results persist in `analysis_results`.
 
 ### Optional paid cloud providers
 

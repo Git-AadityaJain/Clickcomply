@@ -1,5 +1,5 @@
 """
-ClickComply — FastAPI Application Entry Point.
+ClickComply FastAPI Application Entry Point.
 
 This module initializes the FastAPI application, registers routers,
 configures CORS middleware, and handles database startup.
@@ -36,7 +36,16 @@ async def lifespan(app: FastAPI):
             f"DPDP knowledge base seeding skipped (configure AI keys in .env): {exc}"
         )
 
+    from app.services.session_storage_service import (
+        apply_session_lifecycle_policy_on_startup,
+        apply_session_lifecycle_policy_on_shutdown,
+    )
+
+    await apply_session_lifecycle_policy_on_startup()
+
     yield
+
+    await apply_session_lifecycle_policy_on_shutdown()
     logger.info(f"Shutting down {settings.APP_NAME}")
 
 
@@ -47,7 +56,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — explicit origins (allow_credentials + "*" is invalid per browser spec)
+# CORS: explicit origins (allow_credentials + "*" is invalid per browser spec)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,

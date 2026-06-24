@@ -1,5 +1,5 @@
 """
-Analysis Service — orchestrates compliance analysis, persistence, and background runs.
+Analysis Service: orchestrates compliance analysis, persistence, and background runs.
 """
 
 import json
@@ -13,8 +13,14 @@ from app.models.analysis import AnalysisResult
 from app.models.document import Document
 from app.dpdp.dpdp_rules import COMPLIANCE_RULES
 from app.services import ai_service
-from app.services.analysis_progress import clear_analysis_progress, get_analysis_progress
-from app.services.document_service import get_document_by_id
+from app.services.analysis_progress import (
+    clear_analysis_progress,
+    clear_cancel_request,
+    get_analysis_progress,
+    request_analysis_cancel,
+)
+from app.services.document_service import get_document_by_id, parse_org_profile
+from app.dpdp.rule_applicability import get_applicable_rules
 
 
 async def get_compliance_analysis(document_id: str, db: AsyncSession) -> dict:
@@ -26,7 +32,7 @@ async def get_compliance_analysis(document_id: str, db: AsyncSession) -> dict:
         raise ValueError(f"Document {document_id} not found")
 
     if document.status == "ANALYZING":
-        return _analyzing_response(document_id)
+        return _analyzing_response(document_id, document)
 
     cached = await _get_latest_result(db, document_id)
     if cached and document.status == "ANALYSIS_COMPLETE":
@@ -39,7 +45,7 @@ async def get_compliance_analysis(document_id: str, db: AsyncSession) -> dict:
             "overall_status": "ANALYSIS_FAILED",
             "identified_gaps": [],
             "recommendations": [],
-            "note": "Analysis failed. Use Re-run analysis or check server logs.",
+            "note": "The check could not finish. Try again or contact support if this keeps happening.",
         }
 
     if cached:
@@ -49,18 +55,44 @@ async def get_compliance_analysis(document_id: str, db: AsyncSession) -> dict:
         "overall_status": "PENDING_AI_REVIEW",
         "identified_gaps": [],
         "recommendations": [],
-        "note": "Analysis has not started yet. Upload a file to trigger compliance review.",
+        "note": "Upload your privacy policy to start a compliance check.",
     }
 
 
-def _analyzing_response(document_id: str) -> dict:
+async def cancel_analysis(document_id: str, db: AsyncSession) -> dict:
+    """Request cancellation of a running analysis."""
+    document = await get_document_by_id(db, document_id)
+    if document is None:
+        raise ValueError("Review not found.")
+
+    if document.status != "ANALYZING":
+        raise ValueError("No analysis is running right now.")
+
+    request_analysis_cancel(document_id)
+    return {
+        "document_id": document_id,
+        "status": "CANCELLING",
+        "message": "Stopping the analysis. This may take a few seconds.",
+    }
+
+
+def _applicable_rule_count(document: Document) -> int:
+    profile = parse_org_profile(document)
+    if profile:
+        return len(get_applicable_rules(profile))
+    return len(COMPLIANCE_RULES)
+
+
+def _analyzing_response(document_id: str, document: Document | None = None) -> dict:
     progress = get_analysis_progress(document_id)
-    total = len(COMPLIANCE_RULES)
+    total = progress["total"] if progress else (
+        _applicable_rule_count(document) if document else len(COMPLIANCE_RULES)
+    )
     payload: dict = {
         "overall_status": "ANALYZING",
         "identified_gaps": [],
         "recommendations": [],
-        "note": f"Evaluating DPDP compliance rules ({total} total). This may take several minutes.",
+        "note": "Checking your policy against DPDP requirements. This may take a few minutes.",
     }
     if progress:
         payload["progress"] = progress
@@ -73,13 +105,14 @@ async def trigger_analysis_rerun(document_id: str, db: AsyncSession) -> dict:
     if document is None:
         raise ValueError(f"Document {document_id} not found")
 
-    if not document.stored_filename:
-        raise ValueError("Document has no uploaded file. Upload a PDF or DOCX first.")
-
     if document.status == "ANALYZING":
         raise ValueError("Analysis is already in progress for this document.")
 
+    if not document.stored_filename:
+        raise ValueError("Please upload your privacy policy first.")
+
     clear_analysis_progress(document_id)
+    clear_cancel_request(document_id)
     document.status = "QUEUED_FOR_ANALYSIS"
     await db.commit()
 
@@ -99,10 +132,11 @@ async def run_and_persist_analysis(document_id: str) -> None:
         try:
             document = await get_document_by_id(db, document_id)
             if document is None:
-                logger.warning(f"Analysis skipped — document {document_id} not found")
+                logger.warning(f"Analysis skipped: document {document_id} not found")
                 return
 
             clear_analysis_progress(document_id)
+            clear_cancel_request(document_id)
             document.status = "ANALYZING"
             await db.commit()
 
@@ -112,6 +146,8 @@ async def run_and_persist_analysis(document_id: str) -> None:
             overall = result.get("overall_status", "NEEDS_REVIEW")
             if overall == "ANALYSIS_FAILED":
                 document.status = "ANALYSIS_FAILED"
+            elif overall == "ANALYSIS_CANCELLED":
+                document.status = "AWAITING_AI_ANALYSIS" if document.stored_filename else "AWAITING_UPLOAD"
             elif overall == "PENDING_AI_REVIEW":
                 document.status = "AWAITING_AI_ANALYSIS"
             elif overall in ("COMPLIANT", "NON_COMPLIANT", "NEEDS_REVIEW"):

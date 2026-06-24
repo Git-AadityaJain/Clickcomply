@@ -1,5 +1,5 @@
 """
-DPDP Act (Digital Personal Data Protection Act, 2023) — Section Definitions.
+DPDP Act (Digital Personal Data Protection Act, 2023): Section Definitions.
 
 Key regulatory areas evaluated by the compliance engine. Each section maps to
 one or more automated rules in `dpdp_rules.py`. DPDP Rules 2025 provisions

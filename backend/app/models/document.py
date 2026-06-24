@@ -2,13 +2,13 @@
 SQLAlchemy ORM model for the `documents` table.
 
 Stores metadata about policy / compliance documents uploaded by the admin.
-Actual file content is NOT stored — this table records ingestion metadata only.
+Actual file content is NOT stored; this table records ingestion metadata only.
 """
 
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, Integer, Text
+from sqlalchemy import String, DateTime, Integer, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -19,12 +19,12 @@ class Document(Base):
     Represents a compliance document tracked by the system.
 
     Lifecycle statuses:
-        RECEIVED              — Document metadata accepted by the API.
-        QUEUED_FOR_ANALYSIS   — Queued for the AI compliance engine (not yet active).
-        AWAITING_AI_ANALYSIS  — Waiting for AI processing.
-        ANALYZING             — AI analysis in progress.
-        ANALYSIS_COMPLETE     — Analysis finished successfully.
-        ANALYSIS_FAILED       — Analysis could not be completed.
+        RECEIVED              : Document metadata accepted by the API.
+        QUEUED_FOR_ANALYSIS   : Queued for the AI compliance engine (not yet active).
+        AWAITING_AI_ANALYSIS  : Waiting for AI processing.
+        ANALYZING             : AI analysis in progress.
+        ANALYSIS_COMPLETE     : Analysis finished successfully.
+        ANALYSIS_FAILED       : Analysis could not be completed.
     """
 
     __tablename__ = "documents"
@@ -55,6 +55,11 @@ class Document(Base):
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     stored_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remember: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    org_profile_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_policy_md: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_policy_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    applicability_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # One-to-many relationship with analysis results
     analysis_results: Mapped[list["AnalysisResult"]] = relationship(

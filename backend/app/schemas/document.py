@@ -1,51 +1,46 @@
 """
-Pydantic schemas for document-related request and response payloads.
-
-These schemas define the API contract and remain stable even after
-the AI engine is integrated — only internal service logic will change.
+Document-related Pydantic schemas.
 """
 
 from datetime import datetime
+
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+from app.schemas.org_profile import ApplicabilityReport, OrgProfile
 
 
 class DocumentIngestRequest(BaseModel):
     """Request body for POST /documents/ingest."""
 
-    document_name: str = Field(
-        ...,
-        min_length=1,
+    org_profile: OrgProfile
+    document_name: str | None = Field(
+        default=None,
         max_length=255,
-        description="Name of the document being ingested (e.g. privacy_policy.pdf).",
-        examples=["privacy_policy.pdf"],
+        description="Optional; defaults to {legal_name} privacy policy.",
     )
     document_type: str = Field(
-        ...,
+        default="privacy_policy",
         min_length=1,
         max_length=100,
-        description="Category of the document (e.g. privacy_policy, terms_of_service).",
-        examples=["privacy_policy"],
     )
 
 
 class DocumentIngestResponse(BaseModel):
-    """Response body for POST /documents/ingest."""
-
     document_id: str
     status: str
     message: str
+    generated_policy_available: bool = False
+    applicability: ApplicabilityReport | None = None
 
 
 class DocumentStatusResponse(BaseModel):
-    """Response body for GET /documents/{document_id}/status."""
-
     document_id: str
     status: str
 
 
 class DocumentListItem(BaseModel):
-    """Single document entry returned in list endpoints."""
-
     id: str
     document_name: str
     document_type: str
@@ -56,5 +51,41 @@ class DocumentListItem(BaseModel):
     uploader_ip: str | None = None
     original_filename: str | None = None
     stored_filename: str | None = None
+    remember: bool = False
+    has_org_profile: bool = False
+    has_generated_policy: bool = False
+    has_uploaded_file: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class DocumentRememberUpdate(BaseModel):
+    remember: bool = Field(..., description="Keep document across server restarts")
+
+
+class GeneratePolicyRequest(BaseModel):
+    format: Literal["docx", "pdf"] = "docx"
+
+
+class GeneratePolicyResponse(BaseModel):
+    document_id: str
+    format: str
+    filename: str
+    legal_name: str
+
+
+class ApplicabilityResponse(BaseModel):
+    document_id: str
+    report: ApplicabilityReport
+
+
+class PruneSessionRequest(BaseModel):
+    keep_document_ids: list[str] = Field(
+        default_factory=list,
+        description="Document IDs marked to keep in the browser before pruning",
+    )
+
+
+class PruneSessionResponse(BaseModel):
+    removed_count: int
+    removed_ids: list[str]

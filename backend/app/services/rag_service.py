@@ -81,7 +81,7 @@ def init_dpdp_knowledge_base() -> None:
             logger.info("DPDP knowledge base already seeded in Chroma")
             return
         client.delete_collection(DPDP_COLLECTION)
-        logger.info("DPDP knowledge base content changed — re-seeding Chroma")
+        logger.info("DPDP knowledge base content changed: re-seeding Chroma")
     except Exception:
         pass
 
@@ -214,6 +214,25 @@ def _format_results(results: dict[str, Any]) -> str:
     if not docs:
         return "(No relevant context retrieved.)"
     return "\n\n---\n\n".join(docs)
+
+
+def clear_document_vectors(document_id: str) -> None:
+    """Remove all vector chunks for a single document."""
+    collection = _get_document_collection()
+    existing = collection.get(where={"document_id": document_id})
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
+        logger.info(f"Cleared vector chunks for document {document_id}")
+
+
+def clear_document_index() -> None:
+    """Remove all indexed document chunks (keeps DPDP knowledge base)."""
+    client = _get_client()
+    try:
+        client.delete_collection(DOCUMENT_COLLECTION)
+        logger.info("Cleared document vector index")
+    except Exception:
+        pass
 
 
 def knowledge_base_fingerprint() -> str:

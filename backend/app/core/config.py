@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# backend/ — stable base for DB and uploads regardless of process cwd
+# backend/: stable base for DB and uploads regardless of process cwd
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -31,13 +31,13 @@ class Settings:
     PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
-    # Database — defaults to SQLite for local development.
+    # Database: defaults to SQLite for local development.
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"sqlite+aiosqlite:///{(_BACKEND_ROOT / 'clickcomply.db').as_posix()}",
     )
 
-    # CORS — allowed origins for the frontend
+    # CORS: allowed origins for the frontend
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -50,10 +50,10 @@ class Settings:
     )
     MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "50000000"))  # 50 MB
 
-    # AI / RAG — default: Ollama (free, runs locally; no API keys)
+    # AI / RAG: default Ollama (free, runs locally; no API keys)
     AI_PROVIDER: str = os.getenv("AI_PROVIDER", "ollama").lower()  # ollama | openai | gemini
 
-    # Ollama (free local — recommended)
+    # Ollama (free local, recommended)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
     OLLAMA_EMBEDDING_MODEL: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")

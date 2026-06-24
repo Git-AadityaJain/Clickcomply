@@ -17,7 +17,7 @@ def get_logger(name: str = "clickcomply") -> logging.Logger:
     Returns a configured logger instance.
 
     Args:
-        name: Logger namespace — typically the module name.
+        name: Logger namespace, typically the module name.
 
     Returns:
         A logging.Logger with stdout handler and consistent formatting.

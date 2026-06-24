@@ -5,32 +5,63 @@
  * The base URL can be configured via NEXT_PUBLIC_API_URL environment variable.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+import type { OrgProfile, ApplicabilityReport } from "@/lib/org-profile"
+import { parseFriendlyError, friendlyApiError } from "@/lib/friendly-errors"
 
-async function parseErrorResponse(res: Response, fallback: string): Promise<string> {
+export type { OrgProfile, ApplicabilityReport }
+
+/** Backend URL for display (health messages, errors). */
+const PUBLIC_API_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000"
+
+/** In dev, requests go through Next.js `/api` proxy (see next.config.mjs rewrites). */
+export const API_BASE =
+  process.env.NODE_ENV === "development" ? "/api" : PUBLIC_API_URL
+
+/** Human-readable backend URL for offline / error messages */
+export function formatBackendUrl(): string {
   try {
-    const body = await res.json()
-    if (typeof body?.detail === "string") return body.detail
-    if (Array.isArray(body?.detail)) {
-      return body.detail.map((e: { msg?: string }) => e.msg ?? String(e)).join("; ")
-    }
-    return JSON.stringify(body)
+    const url = new URL(PUBLIC_API_URL)
+    return url.host
   } catch {
-    return fallback
+    return PUBLIC_API_URL
   }
+}
+
+export interface HealthResponse {
+  app?: string
+  status?: string
+  database?: string
+  ai?: {
+    status?: string
+    ai_engine?: string
+    message?: string
+    model?: string
+  }
+}
+
+async function parseErrorResponse(
+  res: Response,
+  fallback: string,
+  context?: "ingest" | "upload" | "analysis" | "general"
+): Promise<string> {
+  return parseFriendlyError(res, fallback, context)
 }
 
 /** Types matching the FastAPI Pydantic schemas */
 
 export interface DocumentIngestRequest {
-  document_name: string
-  document_type: string
+  org_profile: OrgProfile
+  document_name?: string | null
+  document_type?: string
 }
 
 export interface DocumentIngestResponse {
   document_id: string
   status: string
   message: string
+  generated_policy_available?: boolean
+  applicability?: ApplicabilityReport | null
 }
 
 export interface DocumentStatusResponse {
@@ -49,6 +80,10 @@ export interface DocumentListItem {
   uploader_ip?: string
   original_filename?: string
   stored_filename?: string
+  remember?: boolean
+  has_org_profile?: boolean
+  has_generated_policy?: boolean
+  has_uploaded_file?: boolean
 }
 
 export interface ComplianceGap {
@@ -70,6 +105,13 @@ export interface AnalysisProgress {
   rule_label: string
 }
 
+export interface PolicyComparison {
+  summary: string
+  missing_in_upload: string[]
+  contradictions: string[]
+  recommendations: string[]
+}
+
 export interface ComplianceAnalysisResponse {
   overall_status: string
   identified_gaps: ComplianceGap[]
@@ -77,6 +119,9 @@ export interface ComplianceAnalysisResponse {
   note: string
   progress?: AnalysisProgress | null
   rules_evaluated?: number | null
+  skipped_rules?: string[] | null
+  applicability_report?: ApplicabilityReport | null
+  policy_comparison?: PolicyComparison | null
 }
 
 export interface AnalysisRerunResponse {
@@ -95,8 +140,8 @@ export async function ingestDocument(
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
-    const detail = await parseErrorResponse(res, res.statusText)
-    throw new Error(`Ingest failed: ${res.status} ${detail}`)
+    const detail = await parseErrorResponse(res, res.statusText, "ingest")
+    throw new Error(detail)
   }
   return res.json()
 }
@@ -107,7 +152,7 @@ export async function getDocumentStatus(
 ): Promise<DocumentStatusResponse> {
   const res = await fetch(`${API_BASE}/documents/${documentId}/status`)
   if (!res.ok) {
-    throw new Error(`Status fetch failed: ${res.status}`)
+    throw new Error("We could not load the document status. Please refresh the page.")
   }
   return res.json()
 }
@@ -116,7 +161,7 @@ export async function getDocumentStatus(
 export async function listDocuments(): Promise<DocumentListItem[]> {
   const res = await fetch(`${API_BASE}/documents`)
   if (!res.ok) {
-    throw new Error(`List documents failed: ${res.status}`)
+    throw new Error("We could not load your document list. Please refresh the page.")
   }
   return res.json()
 }
@@ -127,7 +172,7 @@ export async function getAnalysis(
 ): Promise<ComplianceAnalysisResponse> {
   const res = await fetch(`${API_BASE}/analysis/${documentId}`)
   if (!res.ok) {
-    throw new Error(`Analysis fetch failed: ${res.status}`)
+    throw new Error("We could not load the compliance results. Please try again.")
   }
   return res.json()
 }
@@ -140,8 +185,8 @@ export async function rerunAnalysis(
     method: "POST",
   })
   if (!res.ok) {
-    const detail = await parseErrorResponse(res, res.statusText)
-    throw new Error(`Re-run failed: ${res.status} ${detail}`)
+    const detail = await parseErrorResponse(res, res.statusText, "analysis")
+    throw new Error(detail)
   }
   return res.json()
 }
@@ -159,15 +204,135 @@ export async function uploadDocumentFile(
     body: formData,
   })
   if (!res.ok) {
-    const detail = await parseErrorResponse(res, res.statusText)
-    throw new Error(`File upload failed: ${res.status} ${detail}`)
+    const detail = await parseErrorResponse(res, res.statusText, "upload")
+    throw new Error(detail)
   }
   return res.json()
 }
 
+async function fetchJson<T>(url: string): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(url)
+  } catch {
+    throw new Error(friendlyApiError(0, "Backend unreachable"))
+  }
+  if (!res.ok) throw new Error(friendlyApiError(res.status, res.statusText))
+  return res.json()
+}
+
 /** SWR fetcher helper */
-export const fetcher = (url: string) =>
-  fetch(`${API_BASE}${url}`).then((res) => {
-    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`)
-    return res.json()
+export const fetcher = (url: string) => fetchJson(`${API_BASE}${url}`)
+
+/** Health endpoint fetcher (shared across dashboard) */
+export const healthFetcher = () => fetchJson<HealthResponse>(`${API_BASE}/health`)
+
+export interface GeneratePolicyResponse {
+  document_id: string
+  format: string
+  filename: string
+  legal_name: string
+}
+
+export interface AnalysisCancelResponse {
+  document_id: string
+  status: string
+  message: string
+}
+
+export interface ApplicabilityResponse {
+  document_id: string
+  report: ApplicabilityReport
+}
+
+/** POST /documents/{document_id}/generate-policy */
+export async function generateSuggestedPolicy(
+  documentId: string,
+  format: "docx" | "pdf" = "docx"
+): Promise<GeneratePolicyResponse> {
+  const res = await fetch(`${API_BASE}/documents/${documentId}/generate-policy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ format }),
   })
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, res.statusText, "general")
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+/** GET /documents/{document_id}/applicability */
+export async function getApplicability(
+  documentId: string
+): Promise<ApplicabilityResponse> {
+  const res = await fetch(`${API_BASE}/documents/${documentId}/applicability`)
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, res.statusText, "general")
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+/** POST /analysis/{document_id}/cancel */
+export async function cancelAnalysis(documentId: string): Promise<AnalysisCancelResponse> {
+  const res = await fetch(`${API_BASE}/analysis/${documentId}/cancel`, { method: "POST" })
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, res.statusText, "analysis")
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+/** GET /analysis/{document_id}/download */
+export async function downloadReviewReport(
+  documentId: string,
+  documentName: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/analysis/${documentId}/download`)
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, res.statusText, "analysis")
+    throw new Error(detail)
+  }
+  const blob = await res.blob()
+  const safeName = documentName.replace(/[^\w\s-]/g, "").trim().slice(0, 80) || "review"
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `clickcomply-${safeName}.pdf`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+/** POST /documents/prune-session */
+export async function pruneSessionDocuments(
+  keepDocumentIds: string[]
+): Promise<{ removed_count: number; removed_ids: string[] }> {
+  const res = await fetch(`${API_BASE}/documents/prune-session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keep_document_ids: keepDocumentIds }),
+  })
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, res.statusText, "general")
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+/** PATCH /documents/{document_id}/remember */
+export async function updateDocumentRemember(
+  documentId: string,
+  remember: boolean
+): Promise<DocumentListItem> {
+  const res = await fetch(`${API_BASE}/documents/${documentId}/remember`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ remember }),
+  })
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, res.statusText, "general")
+    throw new Error(detail)
+  }
+  return res.json()
+}

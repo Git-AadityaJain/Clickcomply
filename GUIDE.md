@@ -1,4 +1,4 @@
-# ClickComply — Developer Onboarding & Execution Guide
+# ClickComply Developer Onboarding & Execution Guide
 
 > A step-by-step guide for setting up, running, and verifying the ClickComply DPDP compliance platform locally.
 > Written for internship submission and suitable for beginner-to-intermediate developers.
@@ -67,7 +67,7 @@ If `pip` is not found, try `pip3 --version` or install it via `python -m ensurep
 
 ### Ollama (required for AI analysis)
 
-ClickComply uses **Ollama** for local LLM inference and embeddings — free, no API keys.
+ClickComply uses **Ollama** for local LLM inference and embeddings (free, no API keys).
 
 1. Download and install from [https://ollama.com](https://ollama.com)
 2. Pull the required models (one-time):
@@ -205,7 +205,7 @@ This installs the following packages:
 
 ### Step 5: Configure the Database
 
-ClickComply defaults to **SQLite** for local development. No configuration is required — the database file (`clickcomply.db`) is created automatically when the server starts.
+ClickComply defaults to **SQLite** for local development. No configuration is required; the database file (`clickcomply.db`) is created automatically when the server starts.
 
 To use **PostgreSQL** instead, create a `.env` file in the `backend/` directory:
 
@@ -285,61 +285,37 @@ This confirms the server is running. `ai_engine: "READY"` means Ollama is reacha
 }
 ```
 
-### Test 2: Ingest a Document
+### Test 2: Ingest a Compliance Review
 
 **Endpoint:** `POST /documents/ingest`
 
-In Swagger UI, click the endpoint, press **Try it out**, and enter this request body:
+Requires an `org_profile` object (organization processing questionnaire). The easiest path is the **dashboard wizard** at `http://localhost:3000`. For API testing, use the request body schema in Swagger UI (`/docs`) — it lists all required fields.
 
-```json
-{
-  "document_name": "privacy_policy.pdf",
-  "document_type": "privacy_policy"
-}
-```
+**Expected response (201 Created):** `document_id`, `status: "AWAITING_UPLOAD"`, generated policy availability, and an `applicability` report.
 
-Press **Execute**.
-
-**Expected response (201 Created):**
-```json
-{
-  "document_id": "a1b2c3d4-...",
-  "status": "RECEIVED",
-  "message": "Document sensed and queued for compliance analysis"
-}
-```
-
-Copy the `document_id` value — you will need it for the next two tests.
+Copy the `document_id` for the next tests.
 
 ### Test 3: Check Document Status
 
 **Endpoint:** `GET /documents/{document_id}/status`
 
-Replace `{document_id}` with the UUID from the previous step.
+**Expected response (200 OK):** `status: "AWAITING_UPLOAD"` until analysis is triggered.
 
-**Expected response (200 OK):**
-```json
-{
-  "document_id": "a1b2c3d4-...",
-  "status": "RECEIVED"
-}
-```
+After **Analyze draft** (`POST /documents/{id}/analyze-draft`) or file upload, status progresses through `QUEUED_FOR_ANALYSIS` → `ANALYZING` → `ANALYSIS_COMPLETE` or `ANALYSIS_FAILED`.
 
-After a file upload (Test 5 below), status progresses through `QUEUED_FOR_ANALYSIS` → `ANALYZING` → `ANALYSIS_COMPLETE` or `ANALYSIS_FAILED`.
+### Test 4: Analyze Draft or Upload a File
 
-### Test 4: Upload a File
+**Option A — no upload:** `POST /documents/{document_id}/analyze-draft`
 
-**Endpoint:** `POST /documents/{document_id}/upload`
+**Option B — compare upload:** `POST /documents/{document_id}/upload` with a PDF or DOCX file.
 
-In Swagger UI, use **Try it out**, select a PDF or DOCX file, and execute.
-
-**Expected response (200 OK):** Document metadata with `status: "QUEUED_FOR_ANALYSIS"`. Background analysis starts automatically when Ollama is running.
+Both queue background analysis when Ollama is running. Upload additionally runs a draft-vs-upload comparison in the analysis response.
 
 ### Test 5: Get Compliance Analysis
 
 **Endpoint:** `GET /analysis/{document_id}`
 
-Replace `{document_id}` with the same UUID. Poll this endpoint while status is `ANALYZING` — analysis can take several minutes locally (16 LLM rule evaluations per document).
+Replace `{document_id}` with the same UUID. Poll this endpoint while status is `ANALYZING`; analysis can take several minutes locally (16 LLM rule evaluations per document).
 
 **Expected response (200 OK) when complete:**
 ```json
@@ -359,8 +335,8 @@ Replace `{document_id}` with the same UUID. Poll this endpoint while status is `
 |---------------|-------------------|
 | `http://localhost:8000/docs` loads | Swagger UI is visible |
 | `GET /` returns 200 | `ai_engine` is `READY` when Ollama is running |
-| `POST /documents/ingest` returns 201 | Document is created with a UUID |
-| `POST /documents/{id}/upload` returns 200 | File stored; status `QUEUED_FOR_ANALYSIS` |
+| `POST /documents/ingest` returns 201 | Review created with org profile and generated draft |
+| `POST /documents/{id}/analyze-draft` or upload returns 200 | Analysis queued |
 | `GET /documents/{id}/status` returns 200 | Status progresses to `ANALYSIS_COMPLETE` |
 | `GET /analysis/{id}` returns 200 | Populated gaps and recommendations |
 
@@ -436,7 +412,7 @@ The API base URL is set at the top of `lib/api.ts`:
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 ```
 
-By default, it points to `http://localhost:8000` — the default FastAPI address. To change it:
+By default, it points to `http://localhost:8000` (the default FastAPI address). To change it:
 
 1. Create a `.env.local` file in the project root:
    ```env
@@ -490,7 +466,7 @@ Use this checklist before demos or submission. Check each box in order.
 | 1 | Ollama running | `curl http://127.0.0.1:11434/api/tags` returns model list including `llama3.2` |
 | 2 | Backend health | `GET http://localhost:8000/` → `ai_engine: "READY"` |
 | 3 | Frontend loads | Dashboard at `localhost:3000` with no console errors |
-| 4 | Upload PDF/DOCX | Submit via upload card → success through SENSED → QUEUED stages |
+| 4 | Questionnaire + analyze | Complete wizard → analyze draft or upload policy → analysis completes |
 | 5 | Document in table | New row appears with correct name, size, and status badge |
 | 6 | Analysis starts | Status becomes `ANALYZING` (may take a few seconds) |
 | 7 | Analysis completes | Status becomes `ANALYSIS_COMPLETE` (allow several minutes on first run) |
@@ -504,40 +480,36 @@ Navigate to `http://localhost:3000`. The dashboard loads with the header, stats 
 
 **What this confirms:** The Next.js frontend is compiled and serving correctly.
 
-### Step 2: Upload a Document
+### Step 2: Complete the Organization Questionnaire
 
-1. On the dashboard, locate the **"Upload Compliance Document"** card.
-2. Click the upload area or drag a file onto it. Select any file (e.g., `privacy_policy.pdf`).
-3. Click **"Submit for Analysis"**.
+1. On the dashboard, complete the **Organization Processing Profile** wizard (6 steps).
+2. Click **Generate policy draft** on the final step.
 
 **What to observe:**
-- The card transitions through visual stages:
-  - **SENSED**: The file has been detected (green indicator).
-  - **QUEUED**: The document has been sent to the backend (amber indicator).
-  - **AWAITING AI / ANALYZING**: Background RAG+LLM analysis is running.
-- If the backend is not running, an error message appears in the upload card.
+- Rule applicability summary for your declared processing activities
+- Generated ideal DPDP policy draft (preview / download)
+- Options to **Analyze generated draft** or **Upload & analyze** an existing policy
 
-**What this confirms:** The frontend sends `POST /documents/ingest` and `POST /documents/{id}/upload` successfully.
+**What this confirms:** The frontend sends `POST /documents/ingest` with `org_profile` and receives a tailored draft.
 
-### Step 3: Observe Document Status in the Table
+### Step 3: Run Analysis
 
-After uploading, check the **Documents** table. The new document should appear with:
-- The document name you uploaded
-- A status badge progressing from `QUEUED_FOR_ANALYSIS` → `ANALYZING` → `ANALYSIS_COMPLETE`
-- File size and upload timestamp
+Click **Analyze generated draft**, or upload a PDF/DOCX and click **Upload & analyze**.
 
-Click the row to select it for the compliance panel.
+**What to observe:** Progress through QUEUED → ANALYZING; Compliance Summary updates when complete.
 
-**What this confirms:** The frontend calls `GET /documents` and renders live backend data.
+### Step 4: Observe Document Status in the Table
 
-### Step 4: View Compliance Analysis
+The **Documents** table should show the new review with status progressing to `ANALYSIS_COMPLETE`.
 
-Select the uploaded document. The **Compliance Summary** panel polls `GET /analysis/{document_id}` while status is `ANALYZING`, then shows:
-- Overall status (`COMPLIANT`, `NON_COMPLIANT`, or `NEEDS_REVIEW`)
-- Identified DPDP gaps
-- Actionable recommendations
+### Step 5: View Compliance Analysis
 
-**What this confirms:** The full upload → extract → RAG → Ollama → persist → display pipeline works end-to-end.
+Select the review. The **Compliance Summary** panel shows:
+- Overall status and applicable-rule count (skipped rules noted)
+- Identified DPDP gaps and recommendations
+- Uploaded vs generated draft comparison (when a file was uploaded)
+
+**What this confirms:** The full questionnaire → draft → RAG → Ollama → persist → display pipeline works end-to-end.
 
 ### Integration Checklist
 
@@ -658,7 +630,7 @@ ClickComply runs **automated DPDP compliance analysis** using:
 | Layer | Technology |
 |-------|------------|
 | Text extraction | `pypdf` (PDF), `python-docx` (DOCX) |
-| Vector store | ChromaDB (`backend/chroma_data/`) — Act sections, compliance rules, **DPDP Rules 2025** |
+| Vector store | ChromaDB (`backend/chroma_data/`): Act sections, compliance rules, **DPDP Rules 2025** |
 | Embeddings | Ollama `nomic-embed-text` |
 | LLM evaluation | Ollama `llama3.2` (16 rules from `dpdp_rules.py` + DPDP Rules 2025 in RAG) |
 
@@ -699,7 +671,7 @@ See [backend/README.md](backend/README.md) for optional OpenAI/Gemini setup.
 
 | Task | Command | URL |
 |------|---------|-----|
-| Pull Ollama models | `ollama pull llama3.2 && ollama pull nomic-embed-text` | — |
+| Pull Ollama models | `ollama pull llama3.2 && ollama pull nomic-embed-text` | - |
 | Start backend | `cd backend && uvicorn app.main:app --reload` | `http://localhost:8000` |
 | View API docs | (backend must be running) | `http://localhost:8000/docs` |
 | Start frontend | `npm run dev` | `http://localhost:3000` |

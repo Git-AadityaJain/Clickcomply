@@ -11,13 +11,13 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
-# Async engine — echo=True in debug mode for query logging
+# Async engine: echo=True in debug mode for query logging
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
 )
 
-# Session factory — expires_on_commit=False so objects remain usable after commit
+# Session factory: expires_on_commit=False so objects remain usable after commit
 async_session = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -30,7 +30,7 @@ class Base(DeclarativeBase):
     pass
 
 
-# Columns added after initial schema — migrate existing SQLite DBs in place
+# Columns added after initial schema: migrate existing SQLite DBs in place
 _DOCUMENT_FILE_COLUMNS: dict[str, str] = {
     "file_size": "INTEGER",
     "upload_timestamp": "DATETIME",
@@ -38,6 +38,11 @@ _DOCUMENT_FILE_COLUMNS: dict[str, str] = {
     "original_filename": "VARCHAR(255)",
     "stored_filename": "VARCHAR(255)",
     "extracted_text": "TEXT",
+    "remember": "INTEGER DEFAULT 0",
+    "org_profile_json": "TEXT",
+    "generated_policy_md": "TEXT",
+    "generated_policy_filename": "VARCHAR(255)",
+    "applicability_json": "TEXT",
 }
 
 _ANALYSIS_COLUMNS: dict[str, str] = {

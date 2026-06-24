@@ -1,5 +1,5 @@
 """
-LLM and embedding client — Ollama (free/local) default, optional OpenAI/Gemini.
+LLM and embedding client: Ollama (free/local) default, optional OpenAI/Gemini.
 """
 
 import json

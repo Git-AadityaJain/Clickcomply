@@ -1,5 +1,5 @@
 """
-Document Service — business logic for document ingestion and status tracking.
+Document Service: business logic for document ingestion and status tracking.
 
 Handles all database operations for the documents table.
 Keeps route handlers thin by encapsulating logic here.
@@ -20,55 +20,48 @@ from app.utils.file_utils import (
     extract_file_metadata,
 )
 from app.services.text_extractor import TextExtractionError, extract_text_from_bytes
+from app.schemas.org_profile import OrgProfile, ApplicabilityReport
+from app.dpdp.rule_applicability import evaluate_rule_applicability
+from app.services.policy_generator import (
+    generate_policy_markdown,
+    export_policy_docx,
+    export_policy_pdf,
+)
+
+
+def parse_org_profile(document: Document) -> OrgProfile | None:
+    if not document.org_profile_json:
+        return None
+    return OrgProfile.model_validate_json(document.org_profile_json)
 
 
 async def ingest_document(
     db: AsyncSession,
-    document_name: str,
-    document_type: str,
-) -> Document:
-    """
-    Ingest a new document into the system.
-
-    Steps:
-        1. Create a Document record with status RECEIVED.
-        2. Immediately transition to QUEUED_FOR_ANALYSIS.
-        3. Persist and return the document.
-
-    In the future, step 2 will dispatch to the AI queue instead of
-    performing a synchronous status update.
-
-    Args:
-        db: Active database session.
-        document_name: Human-readable document name.
-        document_type: Category of the document.
-
-    Returns:
-        The persisted Document ORM instance.
-    """
+    org_profile: OrgProfile,
+    document_name: str | None = None,
+    document_type: str = "privacy_policy",
+) -> tuple[Document, ApplicabilityReport]:
+    """Ingest a compliance review with organization processing profile."""
     doc_id = generate_uuid()
+    name = document_name or f"{org_profile.legal_name} — Privacy Policy Review"
+
+    applicability = evaluate_rule_applicability(org_profile)
 
     document = Document(
         id=doc_id,
-        document_name=document_name,
+        document_name=name,
         document_type=document_type,
-        status="RECEIVED",
+        status="AWAITING_UPLOAD",
+        org_profile_json=org_profile.model_dump_json(),
+        applicability_json=applicability.model_dump_json(),
     )
 
     db.add(document)
-    await db.flush()
-
-    logger.info(f"Document {doc_id} received: {document_name}")
-
-    # Transition: RECEIVED -> QUEUED_FOR_ANALYSIS
-    # In production this would enqueue an async job for the AI engine.
-    document.status = "QUEUED_FOR_ANALYSIS"
     await db.commit()
     await db.refresh(document)
 
-    logger.info(f"Document {doc_id} status -> QUEUED_FOR_ANALYSIS")
-
-    return document
+    logger.info(f"Document {doc_id} created with org profile: {org_profile.legal_name}")
+    return document, applicability
 
 
 async def get_document_by_id(db: AsyncSession, document_id: str) -> Document | None:
@@ -164,6 +157,7 @@ async def save_document_file(
     document.uploader_ip = metadata["uploader_ip"]
     document.original_filename = metadata["original_filename"]
     document.stored_filename = metadata["stored_filename"]
+    document.status = "QUEUED_FOR_ANALYSIS"
 
     await db.commit()
     await db.refresh(document)
@@ -171,3 +165,60 @@ async def save_document_file(
     logger.info(f"Document {document_id} metadata updated")
 
     return document
+
+
+async def set_document_remember(
+    db: AsyncSession,
+    document_id: str,
+    remember: bool,
+) -> Document:
+    """Toggle whether a document should survive server restarts."""
+    document = await get_document_by_id(db, document_id)
+    if not document:
+        raise ValueError(f"Document {document_id} not found")
+
+    document.remember = remember
+    await db.commit()
+    await db.refresh(document)
+    logger.info(f"Document {document_id} remember -> {remember}")
+    return document
+
+
+async def generate_policy_file(
+    db: AsyncSession,
+    document_id: str,
+    file_format: str = "docx",
+) -> Document:
+    """Generate a DPDP-aligned policy draft as DOCX or PDF on demand."""
+    document = await get_document_by_id(db, document_id)
+    profile = parse_org_profile(document)
+    if not document or not profile:
+        raise ValueError("Review not found or questionnaire missing.")
+
+    markdown = generate_policy_markdown(profile)
+    title = f"{profile.legal_name} — Privacy Policy"
+    ext = "docx" if file_format == "docx" else "pdf"
+
+    if ext == "docx":
+        content = export_policy_docx(markdown, title)
+    else:
+        content = export_policy_pdf(markdown, title)
+
+    upload_dir = get_upload_dir(settings.UPLOAD_DIR)
+    stored_name = f"{document_id}_suggested_policy.{ext}"
+    save_uploaded_file(content, stored_name, upload_dir)
+
+    document.generated_policy_md = markdown
+    document.generated_policy_filename = stored_name
+    await db.commit()
+    await db.refresh(document)
+    logger.info(f"Generated {ext} policy for document {document_id}")
+    return document
+
+
+def document_list_item_fields(document: Document) -> dict:
+    return {
+        "has_org_profile": bool(document.org_profile_json),
+        "has_generated_policy": bool(document.generated_policy_filename),
+        "has_uploaded_file": bool(document.stored_filename),
+    }
