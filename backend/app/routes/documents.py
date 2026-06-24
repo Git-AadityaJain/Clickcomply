@@ -7,7 +7,7 @@ Endpoints:
     GET  /documents                — List all documents (for the dashboard).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -25,15 +25,20 @@ from app.services.document_service import (
     get_all_documents,
     save_document_file,
 )
+from app.services.analysis_service import run_and_persist_analysis
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
 def _display_status(status: str) -> str:
     """Map internal DB status to frontend-facing labels."""
-    if status == "QUEUED_FOR_ANALYSIS":
-        return "AWAITING_AI_ANALYSIS"
-    return status
+    mapping = {
+        "QUEUED_FOR_ANALYSIS": "AWAITING_AI_ANALYSIS",
+        "ANALYZING": "ANALYZING",
+        "ANALYSIS_COMPLETE": "ANALYSIS_COMPLETE",
+        "ANALYSIS_FAILED": "ANALYSIS_FAILED",
+    }
+    return mapping.get(status, status)
 
 
 @router.post(
@@ -127,6 +132,7 @@ async def list_documents(
 async def upload_file(
     document_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentListItem:
@@ -166,6 +172,8 @@ async def upload_file(
         )
 
         logger.info(f"File saved successfully for document {document_id}")
+
+        background_tasks.add_task(run_and_persist_analysis, document_id)
 
         item = DocumentListItem.model_validate(document)
         item.status = _display_status(item.status)

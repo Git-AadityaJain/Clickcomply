@@ -20,8 +20,8 @@ import {
 } from "@/components/ui/table"
 import { fetcher, type DocumentListItem } from "@/lib/api"
 import { formatFileSize, formatUploadDate, formatUploadTime } from "@/lib/utils"
-
-type DocStatus = "RECEIVED" | "QUEUED_FOR_ANALYSIS" | "AWAITING_AI_ANALYSIS"
+import { useDashboard } from "@/components/dashboard-provider"
+import { useEffect } from "react"
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   RECEIVED: {
@@ -35,6 +35,18 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   AWAITING_AI_ANALYSIS: {
     label: "Awaiting AI",
     className: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  },
+  ANALYZING: {
+    label: "Analyzing",
+    className: "border-primary/30 bg-primary/10 text-primary",
+  },
+  ANALYSIS_COMPLETE: {
+    label: "Complete",
+    className: "border-success/30 bg-success/10 text-success",
+  },
+  ANALYSIS_FAILED: {
+    label: "Failed",
+    className: "border-destructive/30 bg-destructive/10 text-destructive",
   },
 }
 
@@ -119,6 +131,7 @@ const fallbackDocuments: DocumentListItem[] = [
 ]
 
 export function DocumentsTable() {
+  const { selectedDocumentId, setSelectedDocumentId } = useDashboard()
   const { data, error, isLoading } = useSWR<DocumentListItem[]>(
     "/documents",
     fetcher,
@@ -131,6 +144,14 @@ export function DocumentsTable() {
 
   const documents = data ?? fallbackDocuments
   const isUsingFallback = !!error
+
+  useEffect(() => {
+    if (isUsingFallback || documents.length === 0) return
+    const hasSelection = documents.some((d) => d.id === selectedDocumentId)
+    if (!hasSelection) {
+      setSelectedDocumentId(documents[0].id)
+    }
+  }, [documents, isUsingFallback, selectedDocumentId, setSelectedDocumentId])
 
   return (
     <Card>
@@ -171,7 +192,13 @@ export function DocumentsTable() {
                 className: "border-border bg-secondary text-muted-foreground",
               }
               return (
-                <TableRow key={doc.id}>
+                <TableRow
+                  key={doc.id}
+                  className={`cursor-pointer ${
+                    selectedDocumentId === doc.id ? "bg-primary/5" : ""
+                  }`}
+                  onClick={() => setSelectedDocumentId(doc.id)}
+                >
                   <TableCell>
                     <div className="flex items-center gap-2">
                       {getTypeIcon(doc.document_type)}

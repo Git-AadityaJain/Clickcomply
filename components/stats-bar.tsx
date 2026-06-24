@@ -1,22 +1,27 @@
 "use client"
 
 import useSWR from "swr"
-import { FileText, Clock, Cpu, CheckCircle2 } from "lucide-react"
+import { FileText, Clock, Cpu, CheckCircle2, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { fetcher, type DocumentListItem } from "@/lib/api"
 
 export function StatsBar() {
   const { data } = useSWR<DocumentListItem[]>("/documents", fetcher, {
-    revalidateOnFocus: false,
+    revalidateOnFocus: true,
+    refreshInterval: 5000,
     errorRetryCount: 2,
   })
 
   const documents = data ?? []
   const total = documents.length
-  const received = documents.filter((d) => d.status === "RECEIVED").length
-  const queued = documents.filter((d) => d.status === "QUEUED_FOR_ANALYSIS").length
+  const analyzing = documents.filter((d) => d.status === "ANALYZING").length
   const awaiting = documents.filter(
-    (d) => d.status === "AWAITING_AI_ANALYSIS"
+    (d) =>
+      d.status === "AWAITING_AI_ANALYSIS" ||
+      d.status === "QUEUED_FOR_ANALYSIS"
+  ).length
+  const complete = documents.filter(
+    (d) => d.status === "ANALYSIS_COMPLETE"
   ).length
 
   const stats = [
@@ -28,25 +33,25 @@ export function StatsBar() {
       bg: "bg-primary/10",
     },
     {
-      label: "Received",
-      value: String(received),
-      icon: <CheckCircle2 className="h-4 w-4" />,
-      accent: "text-success",
-      bg: "bg-success/10",
+      label: "Analyzing",
+      value: String(analyzing),
+      icon: <Loader2 className={`h-4 w-4 ${analyzing ? "animate-spin" : ""}`} />,
+      accent: "text-primary",
+      bg: "bg-primary/10",
     },
     {
-      label: "Queued",
-      value: String(queued),
+      label: "Awaiting / Queued",
+      value: String(awaiting),
       icon: <Clock className="h-4 w-4" />,
       accent: "text-warning-foreground",
       bg: "bg-warning/10",
     },
     {
-      label: "Awaiting AI",
-      value: String(awaiting),
-      icon: <Cpu className="h-4 w-4" />,
-      accent: "text-muted-foreground",
-      bg: "bg-muted",
+      label: "Complete",
+      value: String(complete),
+      icon: <CheckCircle2 className="h-4 w-4" />,
+      accent: "text-success",
+      bg: "bg-success/10",
     },
   ]
 

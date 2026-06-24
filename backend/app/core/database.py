@@ -37,21 +37,35 @@ _DOCUMENT_FILE_COLUMNS: dict[str, str] = {
     "uploader_ip": "VARCHAR(45)",
     "original_filename": "VARCHAR(255)",
     "stored_filename": "VARCHAR(255)",
+    "extracted_text": "TEXT",
+}
+
+_ANALYSIS_COLUMNS: dict[str, str] = {
+    "result_json": "TEXT",
 }
 
 
 async def _migrate_sqlite_schema(conn) -> None:
-    """Add file-upload columns to documents if the DB predates that feature."""
+    """Add columns introduced after initial deployments."""
     if not settings.DATABASE_URL.startswith("sqlite"):
         return
 
     result = await conn.execute(text("PRAGMA table_info(documents)"))
-    existing = {row[1] for row in result.fetchall()}
+    doc_columns = {row[1] for row in result.fetchall()}
 
     for column, col_type in _DOCUMENT_FILE_COLUMNS.items():
-        if column not in existing:
+        if column not in doc_columns:
             await conn.execute(
                 text(f"ALTER TABLE documents ADD COLUMN {column} {col_type}")
+            )
+
+    result = await conn.execute(text("PRAGMA table_info(analysis_results)"))
+    analysis_columns = {row[1] for row in result.fetchall()}
+
+    for column, col_type in _ANALYSIS_COLUMNS.items():
+        if column not in analysis_columns:
+            await conn.execute(
+                text(f"ALTER TABLE analysis_results ADD COLUMN {column} {col_type}")
             )
 
 

@@ -1,7 +1,31 @@
+"use client"
+
+import useSWR from "swr"
 import { Shield, Activity } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+
+interface HealthResponse {
+  ai?: {
+    status?: string
+    ai_engine?: string
+    message?: string
+  }
+}
+
 export function DashboardHeader() {
+  const { data } = useSWR<HealthResponse>(
+    "/health-ai",
+    () => fetch(`${API_BASE}/health`).then((r) => r.json()),
+    { revalidateOnFocus: false, refreshInterval: 30000 }
+  )
+
+  const aiReady = data?.ai?.status === "READY"
+  const aiLabel = aiReady
+    ? `AI Engine Active (Ollama · ${data?.ai?.model ?? "local"})`
+    : "Start Ollama — see backend/.env.example"
+
   return (
     <header className="border-b border-border bg-card">
       <div className="mx-auto max-w-7xl px-6 py-6">
@@ -22,10 +46,14 @@ export function DashboardHeader() {
           <div className="flex items-center gap-3">
             <Badge
               variant="outline"
-              className="gap-1.5 border-warning/30 bg-warning/10 text-warning-foreground"
+              className={
+                aiReady
+                  ? "gap-1.5 border-success/30 bg-success/10 text-success"
+                  : "gap-1.5 border-warning/30 bg-warning/10 text-warning-foreground"
+              }
             >
               <Activity className="h-3 w-3" />
-              Analysis Engine Pending
+              {aiLabel}
             </Badge>
             <Badge variant="secondary" className="font-mono text-xs">
               DPDP Act 2023
@@ -33,7 +61,8 @@ export function DashboardHeader() {
           </div>
         </div>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          AI-powered DPDP compliance — Upload policies and documents for automated compliance review
+          AI-powered DPDP compliance — Upload policies for automated RAG-based
+          compliance review
         </p>
       </div>
     </header>

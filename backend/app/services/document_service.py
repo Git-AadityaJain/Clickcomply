@@ -19,6 +19,7 @@ from app.utils.file_utils import (
     save_uploaded_file,
     extract_file_metadata,
 )
+from app.services.text_extractor import TextExtractionError, extract_text_from_bytes
 
 
 async def ingest_document(
@@ -146,6 +147,16 @@ async def save_document_file(
         f"File saved for document {document_id}: {metadata['stored_filename']} "
         f"({metadata['file_size']} bytes)"
     )
+
+    try:
+        extracted = extract_text_from_bytes(file_content, original_filename)
+        document.extracted_text = extracted[:500_000]
+        logger.info(
+            f"Extracted {len(extracted)} characters from document {document_id}"
+        )
+    except TextExtractionError as exc:
+        logger.warning(f"Text extraction failed for {document_id}: {exc}")
+        document.extracted_text = None
 
     # Update document record
     document.file_size = metadata["file_size"]

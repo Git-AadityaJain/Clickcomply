@@ -16,3 +16,7 @@ backend/venv/
 backend/**/uploads/
 backend/**/__pycache__/
 *.pyc
+backend/chroma_data/
+backend/.env
+debug-*.log
+.cursor/

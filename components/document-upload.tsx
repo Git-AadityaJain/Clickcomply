@@ -4,6 +4,7 @@ import { useState, useRef } from "react"
 import { Upload, FileText, CheckCircle2, Clock, Cpu, X, AlertCircle } from "lucide-react"
 import { useSWRConfig } from "swr"
 import { ingestDocument, uploadDocumentFile } from "@/lib/api"
+import { useDashboard } from "@/components/dashboard-provider"
 import {
   Card,
   CardContent,
@@ -48,6 +49,7 @@ export function DocumentUpload() {
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { mutate } = useSWRConfig()
+  const { setSelectedDocumentId } = useDashboard()
 
   function handleFileSelect(file: File) {
     const validTypes = [
@@ -97,11 +99,13 @@ export function DocumentUpload() {
       // Step 2: Upload the actual file
       await uploadDocumentFile(ingestResult.document_id, selectedFile)
 
-      // Step 3: Transition to awaiting
+      setSelectedDocumentId(ingestResult.document_id)
+
+      // Step 3: Transition to awaiting / analyzing
       setTimeout(() => {
         setStage("awaiting")
-        // Revalidate the documents list so the table updates with file metadata
         mutate("/documents")
+        mutate(`/analysis/${ingestResult.document_id}`)
       }, 1500)
     } catch (err) {
       setError(

@@ -4,7 +4,7 @@ AI-powered DPDP Act (Digital Personal Data Protection Act, 2023) compliance plat
 
 ## Purpose
 
-ClickComply allows administrators to ingest compliance documents (metadata only), track their processing lifecycle, and view compliance analysis results. The system is architecturally ready for AI-powered analysis via RAG + LLM, but the AI engine is **not yet integrated**.
+ClickComply allows administrators to upload compliance documents, run automated DPDP analysis, and view gaps and recommendations. Analysis uses **local Ollama** by default (free, no API keys).
 
 ## Architecture
 
@@ -27,8 +27,11 @@ backend/
 │   │   └── analysis.py          # GET /analysis/{document_id}
 │   ├── services/
 │   │   ├── document_service.py  # Document business logic (ingest, retrieve, save)
-│   │   ├── analysis_service.py  # Analysis orchestration
-│   │   └── ai_placeholder.py   # ** THE ONLY FILE TO REPLACE FOR AI **
+│   │   ├── analysis_service.py  # Analysis orchestration + persistence
+│   │   ├── ai_service.py        # RAG + LLM compliance evaluation
+│   │   ├── llm_client.py        # Ollama (default) / OpenAI / Gemini
+│   │   ├── rag_service.py       # ChromaDB vector store
+│   │   └── text_extractor.py    # PDF + DOCX text extraction
 │   ├── dpdp/
 │   │   ├── dpdp_sections.py    # DPDP Act section constants
 │   │   ├── dpdp_rules.py       # Compliance rule definitions
@@ -41,6 +44,19 @@ backend/
 ```
 
 ## Quick Start
+
+### 1. Install Ollama (free, local AI)
+
+Download from [https://ollama.com](https://ollama.com), then pull the models:
+
+```bash
+ollama pull llama3.2
+ollama pull nomic-embed-text
+```
+
+Keep Ollama running in the background (it starts automatically after install on Windows/Mac).
+
+### 2. Start the backend
 
 ```bash
 cd backend
@@ -60,28 +76,48 @@ The API will be available at `http://localhost:8000`. Interactive docs at `http:
 | POST   | `/documents/{id}/upload`      | Upload file & save metadata        |
 | GET    | `/documents/{id}/status`      | Get document processing status     |
 | GET    | `/documents`                  | List all documents                 |
-| GET    | `/analysis/{document_id}`     | Get compliance analysis (placeholder) |
+| GET    | `/analysis/{document_id}`     | Get compliance analysis results    |
 | GET    | `/health`                     | Health check with AI status        |
 
-## Why AI Is Not Integrated Yet
+## AI Engine (RAG + Ollama — free by default)
 
-The system is designed with a clear separation between the API/business layer and the AI engine. This allows:
+ClickComply uses **ChromaDB** for vector RAG and **Ollama** for local LLM + embeddings. No API keys or cloud billing required.
 
-1. **Frontend development** to proceed independently of AI model selection and training.
-2. **API contracts** to be finalized and tested before AI adds complexity.
-3. **The AI integration point** to be a single file swap (`ai_placeholder.py`).
+### Default setup (Ollama)
 
-## How to Add AI (Without Breaking APIs)
+| Setting | Default |
+|---------|---------|
+| `AI_PROVIDER` | `ollama` |
+| `OLLAMA_MODEL` | `llama3.2` |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` |
 
-When the RAG + LLM engine is ready:
+Optional: copy `backend/.env.example` to `backend/.env` to override models.
 
-1. **Replace `app/services/ai_placeholder.py`** with a real implementation.
-2. Keep the same function signatures:
-   - `async def run_compliance_analysis(document_id: str) -> dict`
-   - `async def check_ai_health() -> dict`
-3. The return dictionary must match the existing `ComplianceAnalysisResponse` schema.
-4. Update `compliance_checks.py` to call the LLM with prompts from `dpdp_rules.py`.
-5. **No route, schema, or service orchestration files need to change.**
+Analysis runs automatically after each file upload. Results persist in `analysis_results`.
+
+### Optional paid cloud providers
+
+Set `AI_PROVIDER=openai` or `AI_PROVIDER=gemini` in `.env` and install the optional package:
+
+```bash
+pip install openai          # for OpenAI
+pip install google-generativeai  # for Gemini
+```
+
+### Key modules
+
+| Module | Role |
+|--------|------|
+| `app/services/text_extractor.py` | PDF + DOCX text extraction |
+| `app/services/rag_service.py` | Chroma vector store (DPDP + document chunks) |
+| `app/services/llm_client.py` | Ollama / OpenAI / Gemini embeddings + chat |
+| `app/services/ai_service.py` | Per-rule RAG+LLM compliance evaluation |
+| `app/services/analysis_service.py` | Persistence + background analysis |
+
+## Legacy placeholder
+
+`ai_placeholder.py` is retained for reference only. Production analysis uses `ai_service.py`.
 
 ## Database
 

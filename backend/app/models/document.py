@@ -8,7 +8,7 @@ Actual file content is NOT stored — this table records ingestion metadata only
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, Integer
+from sqlalchemy import String, DateTime, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -21,8 +21,10 @@ class Document(Base):
     Lifecycle statuses:
         RECEIVED              — Document metadata accepted by the API.
         QUEUED_FOR_ANALYSIS   — Queued for the AI compliance engine (not yet active).
-        AWAITING_AI_ANALYSIS  — Waiting for AI processing (placeholder state).
-        ANALYSIS_COMPLETE     — Analysis finished (future state).
+        AWAITING_AI_ANALYSIS  — Waiting for AI processing.
+        ANALYZING             — AI analysis in progress.
+        ANALYSIS_COMPLETE     — Analysis finished successfully.
+        ANALYSIS_FAILED       — Analysis could not be completed.
     """
 
     __tablename__ = "documents"
@@ -52,6 +54,7 @@ class Document(Base):
     uploader_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     stored_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # One-to-many relationship with analysis results
     analysis_results: Mapped[list["AnalysisResult"]] = relationship(

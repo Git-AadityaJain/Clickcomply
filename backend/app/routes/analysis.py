@@ -35,7 +35,7 @@ async def get_analysis(
     Return compliance analysis for a given document.
 
     Validates that the document exists before requesting analysis.
-    The analysis service delegates to ai_placeholder.py for now.
+    The analysis service returns persisted RAG+LLM results when available.
     """
     # Verify the document exists
     document = await get_document_by_id(db, document_id)
@@ -49,6 +49,6 @@ async def get_analysis(
 
     logger.info(f"Analysis requested for document: {document.document_name}")
 
-    result = await get_compliance_analysis(document_id)
+    result = await get_compliance_analysis(document_id, db)
 
     return ComplianceAnalysisResponse(**result)

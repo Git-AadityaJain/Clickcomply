@@ -25,6 +25,17 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     await init_db()
     logger.info("Database tables initialized")
+
+    try:
+        from app.services.rag_service import init_dpdp_knowledge_base
+
+        init_dpdp_knowledge_base()
+        logger.info("DPDP vector knowledge base ready")
+    except Exception as exc:
+        logger.warning(
+            f"DPDP knowledge base seeding skipped (configure AI keys in .env): {exc}"
+        )
+
     yield
     logger.info(f"Shutting down {settings.APP_NAME}")
 
@@ -53,18 +64,21 @@ app.include_router(analysis.router)
 @app.get("/", tags=["Health"])
 async def root():
     """Root health check endpoint."""
+    from app.services.llm_client import is_ai_configured
+
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "status": "running",
-        "ai_engine": "NOT_INTEGRATED",
+        "ai_engine": "READY" if is_ai_configured() else "OLLAMA_NOT_RUNNING",
+        "ai_provider": settings.AI_PROVIDER,
     }
 
 
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Detailed health check endpoint."""
-    from app.services.ai_placeholder import check_ai_health
+    from app.services.ai_service import check_ai_health
 
     ai_status = await check_ai_health()
 
