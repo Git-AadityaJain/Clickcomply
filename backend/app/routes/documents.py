@@ -29,6 +29,13 @@ from app.services.document_service import (
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
+def _display_status(status: str) -> str:
+    """Map internal DB status to frontend-facing labels."""
+    if status == "QUEUED_FOR_ANALYSIS":
+        return "AWAITING_AI_ANALYSIS"
+    return status
+
+
 @router.post(
     "/ingest",
     response_model=DocumentIngestResponse,
@@ -79,11 +86,7 @@ async def get_status(
             detail=f"Document {document_id} not found",
         )
 
-    # Documents in QUEUED_FOR_ANALYSIS are presented as AWAITING_AI_ANALYSIS
-    # to the frontend, since the AI engine has not yet processed them.
-    display_status = document.status
-    if display_status == "QUEUED_FOR_ANALYSIS":
-        display_status = "AWAITING_AI_ANALYSIS"
+    display_status = _display_status(document.status)
 
     return DocumentStatusResponse(
         document_id=document.id,
@@ -102,7 +105,12 @@ async def list_documents(
 ) -> list[DocumentListItem]:
     """Return all documents for the dashboard table."""
     documents = await get_all_documents(db)
-    return [DocumentListItem.model_validate(doc) for doc in documents]
+    items = []
+    for doc in documents:
+        item = DocumentListItem.model_validate(doc)
+        item.status = _display_status(item.status)
+        items.append(item)
+    return items
 
 
 @router.post(
@@ -118,9 +126,9 @@ async def list_documents(
 )
 async def upload_file(
     document_id: str,
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    request: Request,
 ) -> DocumentListItem:
     """Upload and save a file for a document."""
     try:
@@ -159,7 +167,9 @@ async def upload_file(
 
         logger.info(f"File saved successfully for document {document_id}")
 
-        return DocumentListItem.model_validate(document)
+        item = DocumentListItem.model_validate(document)
+        item.status = _display_status(item.status)
+        return item
 
     except ValueError as e:
         raise HTTPException(

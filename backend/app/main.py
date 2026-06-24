@@ -36,16 +36,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware — allows the Next.js frontend to communicate with the API
-from fastapi.middleware.cors import CORSMiddleware
-
+# CORS — explicit origins (allow_credentials + "*" is invalid per browser spec)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],  # Added this line
 )
 
 # Register route modules

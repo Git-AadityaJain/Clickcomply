@@ -5,6 +5,7 @@ Uses SQLAlchemy async engine with aiosqlite for local development.
 Replace the DATABASE_URL in config.py with a PostgreSQL URI for production.
 """
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -29,6 +30,31 @@ class Base(DeclarativeBase):
     pass
 
 
+# Columns added after initial schema — migrate existing SQLite DBs in place
+_DOCUMENT_FILE_COLUMNS: dict[str, str] = {
+    "file_size": "INTEGER",
+    "upload_timestamp": "DATETIME",
+    "uploader_ip": "VARCHAR(45)",
+    "original_filename": "VARCHAR(255)",
+    "stored_filename": "VARCHAR(255)",
+}
+
+
+async def _migrate_sqlite_schema(conn) -> None:
+    """Add file-upload columns to documents if the DB predates that feature."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+
+    result = await conn.execute(text("PRAGMA table_info(documents)"))
+    existing = {row[1] for row in result.fetchall()}
+
+    for column, col_type in _DOCUMENT_FILE_COLUMNS.items():
+        if column not in existing:
+            await conn.execute(
+                text(f"ALTER TABLE documents ADD COLUMN {column} {col_type}")
+            )
+
+
 async def get_db() -> AsyncSession:
     """
     FastAPI dependency that yields a database session.
@@ -45,3 +71,4 @@ async def init_db() -> None:
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_sqlite_schema(conn)

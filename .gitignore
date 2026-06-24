@@ -8,3 +8,11 @@ node_modules/
 .next/
 .env*.local
 .DS_Store
+
+# Backend runtime data
+backend/clickcomply.db
+backend/uploads/
+backend/venv/
+backend/**/uploads/
+backend/**/__pycache__/
+*.pyc

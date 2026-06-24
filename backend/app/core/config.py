@@ -6,9 +6,14 @@ used throughout the ClickComply backend.
 """
 
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# backend/ — stable base for DB and uploads regardless of process cwd
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings:
@@ -31,7 +36,7 @@ class Settings:
     # Switch to a PostgreSQL connection string for production.
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "sqlite+aiosqlite:///./clickcomply.db",
+        f"sqlite+aiosqlite:///{(_BACKEND_ROOT / 'clickcomply.db').as_posix()}",
     )
 
     # CORS — allowed origins for the frontend
@@ -41,8 +46,11 @@ class Settings:
     ]
 
     # File upload settings
-    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./backend/uploads")
-    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "50_000_000"))  # 50 MB default
+    UPLOAD_DIR: str = os.getenv(
+        "UPLOAD_DIR",
+        str(_BACKEND_ROOT / "uploads"),
+    )
+    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "50000000"))  # 50 MB default
 
 
 settings = Settings()

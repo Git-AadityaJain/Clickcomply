@@ -7,6 +7,19 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
+async function parseErrorResponse(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json()
+    if (typeof body?.detail === "string") return body.detail
+    if (Array.isArray(body?.detail)) {
+      return body.detail.map((e: { msg?: string }) => e.msg ?? String(e)).join("; ")
+    }
+    return JSON.stringify(body)
+  } catch {
+    return fallback
+  }
+}
+
 /** Types matching the FastAPI Pydantic schemas */
 
 export interface DocumentIngestRequest {
@@ -67,7 +80,8 @@ export async function ingestDocument(
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
-    throw new Error(`Ingest failed: ${res.status} ${res.statusText}`)
+    const detail = await parseErrorResponse(res, res.statusText)
+    throw new Error(`Ingest failed: ${res.status} ${detail}`)
   }
   return res.json()
 }
@@ -116,7 +130,8 @@ export async function uploadDocumentFile(
     body: formData,
   })
   if (!res.ok) {
-    throw new Error(`File upload failed: ${res.status} ${res.statusText}`)
+    const detail = await parseErrorResponse(res, res.statusText)
+    throw new Error(`File upload failed: ${res.status} ${detail}`)
   }
   return res.json()
 }
