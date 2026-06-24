@@ -13,6 +13,7 @@ from chromadb.api.models.Collection import Collection
 from app.core.config import settings
 from app.core.logging import logger
 from app.dpdp.dpdp_rules import COMPLIANCE_RULES
+from app.dpdp.dpdp_rules_2025 import DPDP_RULES_2025
 from app.dpdp.dpdp_sections import DPDP_SECTIONS
 from app.services.llm_client import embed_texts
 
@@ -68,14 +69,26 @@ def _get_document_collection() -> Collection:
 def init_dpdp_knowledge_base() -> None:
     """Seed Chroma with DPDP sections and compliance rules (idempotent)."""
     global _dpdp_seeded
-    if _dpdp_seeded:
-        return
 
-    collection = _get_dpdp_collection()
-    if collection.count() > 0:
-        _dpdp_seeded = True
-        logger.info("DPDP knowledge base already seeded in Chroma")
-        return
+    fp = knowledge_base_fingerprint()
+    client = _get_client()
+
+    try:
+        collection = client.get_collection(DPDP_COLLECTION)
+        stored_fp = (collection.metadata or {}).get("content_fingerprint")
+        if collection.count() > 0 and stored_fp == fp:
+            _dpdp_seeded = True
+            logger.info("DPDP knowledge base already seeded in Chroma")
+            return
+        client.delete_collection(DPDP_COLLECTION)
+        logger.info("DPDP knowledge base content changed — re-seeding Chroma")
+    except Exception:
+        pass
+
+    collection = client.get_or_create_collection(
+        name=DPDP_COLLECTION,
+        metadata={"hnsw:space": "cosine", "content_fingerprint": fp},
+    )
 
     documents: list[str] = []
     metadatas: list[dict[str, Any]] = []
@@ -104,6 +117,23 @@ def init_dpdp_knowledge_base() -> None:
                 "rule_id": rule["rule_id"],
                 "section_ref": rule["section_ref"],
                 "severity": rule["severity"],
+            }
+        )
+        ids.append(doc_id)
+
+    for rule in DPDP_RULES_2025:
+        doc_text = (
+            f"DPDP Rules 2025 {rule['rule_ref']} ({rule['act_ref']}): {rule['title']}\n"
+            f"{rule['description']}"
+        )
+        doc_id = f"r2025-{rule['rule_key']}"
+        documents.append(doc_text)
+        metadatas.append(
+            {
+                "type": "dpdp_rule_2025",
+                "rule_ref": rule["rule_ref"],
+                "act_ref": rule["act_ref"],
+                "rule_key": rule["rule_key"],
             }
         )
         ids.append(doc_id)
@@ -188,7 +218,12 @@ def _format_results(results: dict[str, Any]) -> str:
 
 def knowledge_base_fingerprint() -> str:
     """Stable hash to detect knowledge base content changes."""
-    parts = [DPDP_COLLECTION]
+    parts = [DPDP_COLLECTION, "v2-rules-2025"]
+    for key in sorted(DPDP_SECTIONS.keys()):
+        section = DPDP_SECTIONS[key]
+        parts.append(key + section["section"] + section["title"])
     for rule in COMPLIANCE_RULES:
-        parts.append(rule["rule_id"] + rule["description"])
+        parts.append(rule["rule_id"] + rule["description"] + rule["ai_prompt_hint"])
+    for rule in DPDP_RULES_2025:
+        parts.append(rule["rule_key"] + rule["description"])
     return hashlib.sha256("".join(parts).encode()).hexdigest()[:16]

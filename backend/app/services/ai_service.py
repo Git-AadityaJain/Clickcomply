@@ -20,6 +20,10 @@ from app.services.llm_client import (
     is_ai_configured,
 )
 from app.services.rag_service import index_document_text, query_document_context, query_dpdp_context
+from app.services.analysis_progress import (
+    clear_analysis_progress,
+    set_analysis_progress,
+)
 from app.services.text_extractor import TextExtractionError, extract_text_from_path
 
 
@@ -106,11 +110,20 @@ async def run_compliance_analysis(document_id: str, db: AsyncSession) -> dict:
     recommendations: list[dict] = []
     needs_review = False
     failures = 0
+    total_rules = len(COMPLIANCE_RULES)
 
-    for rule in COMPLIANCE_RULES:
+    for index, rule in enumerate(COMPLIANCE_RULES, start=1):
+        set_analysis_progress(
+            document_id,
+            current=index,
+            total=total_rules,
+            rule_id=rule["rule_id"],
+            rule_label=rule["description"],
+        )
         try:
             evaluation = _evaluate_rule(rule, document_id)
         except LLMConfigurationError as exc:
+            clear_analysis_progress(document_id)
             return {
                 "overall_status": "ANALYSIS_FAILED",
                 "identified_gaps": [],
@@ -165,13 +178,16 @@ async def run_compliance_analysis(document_id: str, db: AsyncSession) -> dict:
     else:
         overall = "COMPLIANT"
 
+    clear_analysis_progress(document_id)
+
     return {
         "overall_status": overall,
         "identified_gaps": gaps,
         "recommendations": recommendations,
+        "rules_evaluated": total_rules,
         "note": (
             f"Analysis completed using {settings.AI_PROVIDER} with vector RAG over "
-            f"{len(COMPLIANCE_RULES)} DPDP compliance rules."
+            f"{total_rules} DPDP compliance rules."
         ),
     }
 

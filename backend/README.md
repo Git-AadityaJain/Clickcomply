@@ -33,9 +33,10 @@ backend/
 │   │   ├── rag_service.py       # ChromaDB vector store
 │   │   └── text_extractor.py    # PDF + DOCX text extraction
 │   ├── dpdp/
-│   │   ├── dpdp_sections.py    # DPDP Act section constants
-│   │   ├── dpdp_rules.py       # Compliance rule definitions
-│   │   └── compliance_checks.py # Per-section check stubs
+│   │   ├── dpdp_sections.py    # DPDP Act 2023 section constants
+│   │   ├── dpdp_rules.py       # 16 compliance rule definitions
+│   │   ├── dpdp_rules_2025.py  # DPDP Rules 2025 (RAG knowledge)
+│   │   └── compliance_checks.py # Per-section check summaries
 │   └── utils/
 │       ├── helpers.py           # Shared utility functions
 │       └── file_utils.py        # File upload, storage, and metadata helpers
@@ -77,11 +78,12 @@ The API will be available at `http://localhost:8000`. Interactive docs at `http:
 | GET    | `/documents/{id}/status`      | Get document processing status     |
 | GET    | `/documents`                  | List all documents                 |
 | GET    | `/analysis/{document_id}`     | Get compliance analysis results    |
+| POST   | `/analysis/{document_id}/rerun` | Re-run analysis for uploaded file |
 | GET    | `/health`                     | Health check with AI status        |
 
 ## AI Engine (RAG + Ollama — free by default)
 
-ClickComply uses **ChromaDB** for vector RAG and **Ollama** for local LLM + embeddings. No API keys or cloud billing required.
+ClickComply uses **ChromaDB** for vector RAG and **Ollama** for local LLM + embeddings. The knowledge base includes DPDP Act 2023 sections, 16 compliance rules, and **DPDP Rules 2025** policy provisions. No API keys or cloud billing required.
 
 ### Default setup (Ollama)
 
@@ -114,10 +116,6 @@ pip install google-generativeai  # for Gemini
 | `app/services/llm_client.py` | Ollama / OpenAI / Gemini embeddings + chat |
 | `app/services/ai_service.py` | Per-rule RAG+LLM compliance evaluation |
 | `app/services/analysis_service.py` | Persistence + background analysis |
-
-## Legacy placeholder
-
-`ai_placeholder.py` is retained for reference only. Production analysis uses `ai_service.py`.
 
 ## Database
 

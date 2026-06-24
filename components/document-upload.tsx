@@ -36,8 +36,8 @@ const stageConfig: Record<
     progress: 66,
   },
   awaiting: {
-    label: "Awaiting AI engine",
-    icon: <Cpu className="h-4 w-4 text-muted-foreground" />,
+    label: "Analysis running — see Compliance Summary below",
+    icon: <Cpu className="h-4 w-4 text-primary" />,
     progress: 100,
   },
 }

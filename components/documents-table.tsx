@@ -1,7 +1,7 @@
 "use client"
 
 import useSWR from "swr"
-import { FileText, FileCheck, FileLock2, FolderOpen, Loader2 } from "lucide-react"
+import { FileText, FileCheck, FileLock2, FolderOpen, Loader2, AlertCircle } from "lucide-react"
 import {
   Card,
   CardContent,
@@ -66,92 +66,27 @@ function formatType(docType: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-/** Static fallback documents shown when backend is unreachable */
-const fallbackDocuments: DocumentListItem[] = [
-  {
-    id: "demo-1",
-    document_name: "Employee Data Protection Policy v2.4",
-    document_type: "privacy_policy",
-    status: "AWAITING_AI_ANALYSIS",
-    created_at: "2026-02-28T10:00:00Z",
-    file_size: 245632,
-    upload_timestamp: "2026-02-28T10:15:00Z",
-    uploader_ip: "203.0.113.42",
-    original_filename: "privacy_policy_v2.4.pdf",
-    stored_filename: "a7f2e9c1-privacy_policy_v2.4.pdf",
-  },
-  {
-    id: "demo-2",
-    document_name: "Vendor Data Processing Agreement - TechServ",
-    document_type: "vendor_dpa",
-    status: "QUEUED_FOR_ANALYSIS",
-    created_at: "2026-02-27T10:00:00Z",
-    file_size: 512000,
-    upload_timestamp: "2026-02-27T14:30:00Z",
-    uploader_ip: "203.0.113.43",
-    original_filename: "TechServ_DPA.pdf",
-    stored_filename: "b3d1f5e8-TechServ_DPA.pdf",
-  },
-  {
-    id: "demo-3",
-    document_name: "Internal Data Handling Guidelines",
-    document_type: "internal_policy",
-    status: "RECEIVED",
-    created_at: "2026-02-26T10:00:00Z",
-    file_size: 178245,
-    upload_timestamp: "2026-02-26T09:45:00Z",
-    uploader_ip: "203.0.113.44",
-    original_filename: "data_handling_guidelines.docx",
-    stored_filename: "c6e4a2f7-data_handling_guidelines.docx",
-  },
-  {
-    id: "demo-4",
-    document_name: "Customer Consent Management Policy",
-    document_type: "privacy_policy",
-    status: "AWAITING_AI_ANALYSIS",
-    created_at: "2026-02-25T10:00:00Z",
-    file_size: 342567,
-    upload_timestamp: "2026-02-25T11:20:00Z",
-    uploader_ip: "203.0.113.45",
-    original_filename: "consent_policy.pdf",
-    stored_filename: "d9f3b1c0-consent_policy.pdf",
-  },
-  {
-    id: "demo-5",
-    document_name: "Third-Party Data Sharing Agreement",
-    document_type: "vendor_dpa",
-    status: "QUEUED_FOR_ANALYSIS",
-    created_at: "2026-02-24T10:00:00Z",
-    file_size: 421890,
-    upload_timestamp: "2026-02-24T16:00:00Z",
-    uploader_ip: "203.0.113.46",
-    original_filename: "3rd_party_sharing_agreement.pdf",
-    stored_filename: "e2c5f8d3-3rd_party_sharing_agreement.pdf",
-  },
-]
-
 export function DocumentsTable() {
   const { selectedDocumentId, setSelectedDocumentId } = useDashboard()
   const { data, error, isLoading } = useSWR<DocumentListItem[]>(
     "/documents",
     fetcher,
     {
-      fallbackData: fallbackDocuments,
-      revalidateOnFocus: false,
+      revalidateOnFocus: true,
       errorRetryCount: 2,
     }
   )
 
-  const documents = data ?? fallbackDocuments
-  const isUsingFallback = !!error
+  const documents = data ?? []
+  const backendOffline = !!error
 
   useEffect(() => {
-    if (isUsingFallback || documents.length === 0) return
+    if (backendOffline || documents.length === 0) return
     const hasSelection = documents.some((d) => d.id === selectedDocumentId)
     if (!hasSelection) {
       setSelectedDocumentId(documents[0].id)
     }
-  }, [documents, isUsingFallback, selectedDocumentId, setSelectedDocumentId])
+  }, [documents, backendOffline, selectedDocumentId, setSelectedDocumentId])
 
   return (
     <Card>
@@ -164,76 +99,90 @@ export function DocumentsTable() {
           )}
         </CardTitle>
         <CardDescription>
-          {documents.length} document{documents.length !== 1 ? "s" : ""} uploaded for compliance review
-          {isUsingFallback && (
-            <span className="ml-1 text-muted-foreground/60">
-              (showing demo data — backend offline)
-            </span>
-          )}
+          {backendOffline
+            ? "Cannot reach backend — start the FastAPI server on port 8000"
+            : `${documents.length} document${documents.length !== 1 ? "s" : ""} uploaded for compliance review`}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Document Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Upload Date</TableHead>
-              <TableHead>Upload Time</TableHead>
-              <TableHead>File Size</TableHead>
-              <TableHead>Uploaded By</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {documents.map((doc) => {
-              const status = statusConfig[doc.status] ?? {
-                label: doc.status,
-                className: "border-border bg-secondary text-muted-foreground",
-              }
-              return (
-                <TableRow
-                  key={doc.id}
-                  className={`cursor-pointer ${
-                    selectedDocumentId === doc.id ? "bg-primary/5" : ""
-                  }`}
-                  onClick={() => setSelectedDocumentId(doc.id)}
-                >
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      {getTypeIcon(doc.document_type)}
-                      <span className="font-medium text-foreground">
-                        {doc.document_name}
+        {backendOffline ? (
+          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <p className="text-sm text-destructive">
+              Backend offline. Run{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                uvicorn app.main:app --reload
+              </code>{" "}
+              from the <code className="rounded bg-muted px-1 py-0.5 text-xs">backend/</code> folder.
+            </p>
+          </div>
+        ) : documents.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No documents yet. Upload a PDF or DOCX above to start compliance review.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Document Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Upload Date</TableHead>
+                <TableHead>Upload Time</TableHead>
+                <TableHead>File Size</TableHead>
+                <TableHead>Uploaded By</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {documents.map((doc) => {
+                const status = statusConfig[doc.status] ?? {
+                  label: doc.status,
+                  className: "border-border bg-secondary text-muted-foreground",
+                }
+                return (
+                  <TableRow
+                    key={doc.id}
+                    className={`cursor-pointer ${
+                      selectedDocumentId === doc.id ? "bg-primary/5" : ""
+                    }`}
+                    onClick={() => setSelectedDocumentId(doc.id)}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {getTypeIcon(doc.document_type)}
+                        <span className="font-medium text-foreground">
+                          {doc.document_name}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {formatType(doc.document_type)}
                       </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm text-muted-foreground">
-                      {formatType(doc.document_type)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatUploadDate(doc.upload_timestamp)}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground font-mono">
-                    {formatUploadTime(doc.upload_timestamp)}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {doc.file_size ? formatFileSize(doc.file_size) : "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground font-mono">
-                    {doc.uploader_ip || "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={status.className}>
-                      {status.label}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatUploadDate(doc.upload_timestamp)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground font-mono">
+                      {formatUploadTime(doc.upload_timestamp)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {doc.file_size ? formatFileSize(doc.file_size) : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground font-mono">
+                      {doc.uploader_ip || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={status.className}>
+                        {status.label}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   )

@@ -63,11 +63,26 @@ export interface Recommendation {
   priority: string
 }
 
+export interface AnalysisProgress {
+  current: number
+  total: number
+  rule_id: string
+  rule_label: string
+}
+
 export interface ComplianceAnalysisResponse {
   overall_status: string
   identified_gaps: ComplianceGap[]
   recommendations: Recommendation[]
   note: string
+  progress?: AnalysisProgress | null
+  rules_evaluated?: number | null
+}
+
+export interface AnalysisRerunResponse {
+  document_id: string
+  status: string
+  message: string
 }
 
 /** POST /documents/ingest */
@@ -113,6 +128,20 @@ export async function getAnalysis(
   const res = await fetch(`${API_BASE}/analysis/${documentId}`)
   if (!res.ok) {
     throw new Error(`Analysis fetch failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+/** POST /analysis/{document_id}/rerun */
+export async function rerunAnalysis(
+  documentId: string
+): Promise<AnalysisRerunResponse> {
+  const res = await fetch(`${API_BASE}/analysis/${documentId}/rerun`, {
+    method: "POST",
+  })
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, res.statusText)
+    throw new Error(`Re-run failed: ${res.status} ${detail}`)
   }
   return res.json()
 }

@@ -11,6 +11,7 @@ interface HealthResponse {
     status?: string
     ai_engine?: string
     message?: string
+    model?: string
   }
 }
 

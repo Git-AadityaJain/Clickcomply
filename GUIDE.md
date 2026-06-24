@@ -15,7 +15,7 @@
 6. [Connecting Frontend to Backend](#6-connecting-frontend-to-backend)
 7. [End-to-End Testing (Frontend + Backend)](#7-end-to-end-testing-frontend--backend)
 8. [Common Errors & Fixes](#8-common-errors--fixes)
-9. [AI Integration Note (For Future)](#9-ai-integration-note-for-future)
+9. [AI Engine (Ollama RAG)](#9-ai-engine-ollama-rag)
 
 ---
 
@@ -65,6 +65,26 @@ pip --version
 
 If `pip` is not found, try `pip3 --version` or install it via `python -m ensurepip --upgrade`.
 
+### Ollama (required for AI analysis)
+
+ClickComply uses **Ollama** for local LLM inference and embeddings — free, no API keys.
+
+1. Download and install from [https://ollama.com](https://ollama.com)
+2. Pull the required models (one-time):
+
+```bash
+ollama pull llama3.2
+ollama pull nomic-embed-text
+```
+
+3. Keep Ollama running in the background while using ClickComply.
+
+Verify Ollama is reachable:
+
+```bash
+curl http://127.0.0.1:11434/api/tags
+```
+
 ### VS Code
 
 Download and install Visual Studio Code from [https://code.visualstudio.com](https://code.visualstudio.com).
@@ -95,8 +115,10 @@ clickcomply/
 │   ├── dashboard-header.tsx      # App header with branding
 │   ├── document-upload.tsx       # Drag-and-drop document upload card
 │   ├── documents-table.tsx       # Document list with status badges
-│   ├── compliance-summary.tsx    # Placeholder compliance analysis panel
+│   ├── compliance-summary.tsx    # Live compliance analysis panel
 │   ├── stats-bar.tsx             # Summary statistics bar
+│   ├── dashboard-provider.tsx    # Selected document + shared dashboard state
+│   ├── dashboard-shell.tsx       # Dashboard layout wrapper
 │   ├── providers.tsx             # SWR data-fetching provider
 │   └── ui/                       # shadcn/ui component library
 ├── lib/
@@ -109,7 +131,7 @@ clickcomply/
 │   │   ├── models/               # SQLAlchemy ORM models
 │   │   ├── schemas/              # Pydantic request/response schemas
 │   │   ├── routes/               # API endpoint definitions
-│   │   ├── services/             # Business logic & AI placeholder
+│   │   ├── services/             # Business logic, RAG, and AI services
 │   │   ├── dpdp/                 # DPDP Act sections, rules, checks
 │   │   └── utils/                # Shared helpers
 │   ├── requirements.txt          # Python dependencies
@@ -122,7 +144,7 @@ clickcomply/
 
 - **Frontend (`app/`, `components/`, `lib/`)**: A Next.js 16 dashboard that provides the user interface for uploading documents, viewing processing status, and reading compliance analysis results. It communicates with the backend via REST API calls.
 
-- **Backend (`backend/`)**: A FastAPI server that manages document ingestion, lifecycle tracking, and compliance analysis. It uses SQLAlchemy with an async SQLite database for local development. The AI compliance engine is not yet integrated but the architecture is prepared for it.
+- **Backend (`backend/`)**: A FastAPI server that manages document ingestion, file storage, text extraction, vector RAG indexing, and automated DPDP compliance analysis via Ollama. Uses SQLAlchemy with async SQLite for local development.
 
 ---
 
@@ -193,7 +215,11 @@ DATABASE_URL=postgresql+asyncpg://username:password@localhost:5432/clickcomply
 
 Note: PostgreSQL requires the `asyncpg` package (`pip install asyncpg`).
 
-### Step 6: Start the FastAPI Server
+### Step 6: Install and Start Ollama
+
+Ensure Ollama is installed and the models are pulled (see [Prerequisites](#1-prerequisites)). Ollama must be running before you upload documents for analysis.
+
+### Step 7: Start the FastAPI Server
 
 ```bash
 uvicorn app.main:app --reload
@@ -236,11 +262,28 @@ Click the endpoint in Swagger UI, press **Try it out**, then **Execute**.
   "app": "ClickComply",
   "version": "1.0.0",
   "status": "running",
-  "ai_engine": "NOT_INTEGRATED"
+  "ai_engine": "READY",
+  "ai_provider": "ollama"
 }
 ```
 
-This confirms the server is running. The `ai_engine: "NOT_INTEGRATED"` field is expected.
+This confirms the server is running. `ai_engine: "READY"` means Ollama is reachable and configured. If you see `OLLAMA_NOT_RUNNING`, start Ollama and pull the models listed in the prerequisites.
+
+**Detailed health:** `GET /health` returns database and AI subsystem status:
+
+```json
+{
+  "app": "ClickComply",
+  "status": "healthy",
+  "database": "connected",
+  "ai": {
+    "ai_engine": "ollama",
+    "status": "READY",
+    "model": "llama3.2",
+    "embedding_model": "nomic-embed-text"
+  }
+}
+```
 
 ### Test 2: Ingest a Document
 
@@ -278,38 +321,48 @@ Replace `{document_id}` with the UUID from the previous step.
 ```json
 {
   "document_id": "a1b2c3d4-...",
-  "status": "AWAITING_AI_ANALYSIS"
+  "status": "RECEIVED"
 }
 ```
 
-The status `AWAITING_AI_ANALYSIS` indicates the document has been received and is waiting for the AI engine, which is not yet integrated.
+After a file upload (Test 5 below), status progresses through `QUEUED_FOR_ANALYSIS` → `ANALYZING` → `ANALYSIS_COMPLETE` or `ANALYSIS_FAILED`.
 
-### Test 4: Get Compliance Analysis
+### Test 4: Upload a File
+
+**Endpoint:** `POST /documents/{document_id}/upload`
+
+In Swagger UI, use **Try it out**, select a PDF or DOCX file, and execute.
+
+**Expected response (200 OK):** Document metadata with `status: "QUEUED_FOR_ANALYSIS"`. Background analysis starts automatically when Ollama is running.
+
+### Test 5: Get Compliance Analysis
 
 **Endpoint:** `GET /analysis/{document_id}`
 
-Replace `{document_id}` with the same UUID.
+Replace `{document_id}` with the same UUID. Poll this endpoint while status is `ANALYZING` — analysis can take several minutes locally (16 LLM rule evaluations per document).
 
-**Expected response (200 OK):**
+**Expected response (200 OK) when complete:**
 ```json
 {
-  "overall_status": "PENDING_AI_REVIEW",
-  "identified_gaps": [],
-  "recommendations": [],
-  "note": "AI compliance engine not yet integrated. This is a placeholder response with the same structure that the real AI engine will produce."
+  "overall_status": "COMPLIANT",
+  "identified_gaps": ["..."],
+  "recommendations": ["..."],
+  "note": "Analysis complete. ..."
 }
 ```
 
-This confirms the analysis endpoint is working. The empty `identified_gaps` and `recommendations` arrays are expected — they will be populated once the AI engine is connected.
+`overall_status` may also be `NON_COMPLIANT`, `NEEDS_REVIEW`, or `ANALYSIS_FAILED` depending on document content and Ollama availability.
 
 ### Summary of Success Criteria
 
 | What to check | Expected behavior |
 |---------------|-------------------|
 | `http://localhost:8000/docs` loads | Swagger UI is visible |
+| `GET /` returns 200 | `ai_engine` is `READY` when Ollama is running |
 | `POST /documents/ingest` returns 201 | Document is created with a UUID |
-| `GET /documents/{id}/status` returns 200 | Status shows `AWAITING_AI_ANALYSIS` |
-| `GET /analysis/{id}` returns 200 | Placeholder analysis with empty arrays |
+| `POST /documents/{id}/upload` returns 200 | File stored; status `QUEUED_FOR_ANALYSIS` |
+| `GET /documents/{id}/status` returns 200 | Status progresses to `ANALYSIS_COMPLETE` |
+| `GET /analysis/{id}` returns 200 | Populated gaps and recommendations |
 
 ---
 
@@ -355,8 +408,8 @@ Navigate to `http://localhost:3000` in your browser. You should see the ClickCom
 - A header displaying "ClickComply" and the DPDP Act compliance label
 - A statistics bar showing document counts by status
 - A document upload card with drag-and-drop support
-- A documents table (initially empty or showing fallback demo data)
-- A compliance summary panel with placeholder analysis information
+- A documents table (empty until you upload, or showing live backend data)
+- A compliance summary panel that updates when you select a document
 
 ---
 
@@ -419,13 +472,31 @@ Both `localhost` and `127.0.0.1` are allowed. No additional CORS setup is needed
 
 ## 7. End-to-End Testing (Frontend + Backend)
 
-This section walks through a complete workflow to verify that the frontend, backend, and their integration are all functioning correctly.
+This section walks through a complete workflow to verify that the frontend, backend, Ollama, and their integration are all functioning correctly.
 
 ### Prerequisites
 
-Ensure both servers are running:
-- Backend at `http://localhost:8000`
+Ensure all three are running:
+- **Ollama** with `llama3.2` and `nomic-embed-text` pulled
+- Backend at `http://localhost:8000` (`ai_engine: "READY"` on `GET /`)
 - Frontend at `http://localhost:3000`
+
+### E2E Verification Checklist
+
+Use this checklist before demos or submission. Check each box in order.
+
+| # | Step | Pass criteria |
+|---|------|---------------|
+| 1 | Ollama running | `curl http://127.0.0.1:11434/api/tags` returns model list including `llama3.2` |
+| 2 | Backend health | `GET http://localhost:8000/` → `ai_engine: "READY"` |
+| 3 | Frontend loads | Dashboard at `localhost:3000` with no console errors |
+| 4 | Upload PDF/DOCX | Submit via upload card → success through SENSED → QUEUED stages |
+| 5 | Document in table | New row appears with correct name, size, and status badge |
+| 6 | Analysis starts | Status becomes `ANALYZING` (may take a few seconds) |
+| 7 | Analysis completes | Status becomes `ANALYSIS_COMPLETE` (allow several minutes on first run) |
+| 8 | Compliance panel | Selecting the document shows gaps, recommendations, and overall status |
+| 9 | API parity | `GET /analysis/{id}` in Swagger matches what the dashboard shows |
+| 10 | Backend offline UX | Stop backend → documents table shows offline message (not fake demo data) |
 
 ### Step 1: Open the Dashboard
 
@@ -440,39 +511,42 @@ Navigate to `http://localhost:3000`. The dashboard loads with the header, stats 
 3. Click **"Submit for Analysis"**.
 
 **What to observe:**
-- The card transitions through three visual stages:
+- The card transitions through visual stages:
   - **SENSED**: The file has been detected (green indicator).
   - **QUEUED**: The document has been sent to the backend (amber indicator).
-  - **AWAITING AI**: The document is stored and waiting for analysis (blue indicator).
+  - **AWAITING AI / ANALYZING**: Background RAG+LLM analysis is running.
 - If the backend is not running, an error message appears in the upload card.
 
-**What this confirms:** The frontend can send `POST /documents/ingest` to the backend and receive a response.
+**What this confirms:** The frontend sends `POST /documents/ingest` and `POST /documents/{id}/upload` successfully.
 
 ### Step 3: Observe Document Status in the Table
 
-After uploading, check the **Documents** table below. The newly uploaded document should appear with:
+After uploading, check the **Documents** table. The new document should appear with:
 - The document name you uploaded
-- A status badge (e.g., `RECEIVED` or `AWAITING_AI_ANALYSIS`)
-- A timestamp
+- A status badge progressing from `QUEUED_FOR_ANALYSIS` → `ANALYZING` → `ANALYSIS_COMPLETE`
+- File size and upload timestamp
 
-**What this confirms:** The frontend is successfully calling `GET /documents` and rendering live backend data.
+Click the row to select it for the compliance panel.
+
+**What this confirms:** The frontend calls `GET /documents` and renders live backend data.
 
 ### Step 4: View Compliance Analysis
 
-In the **Compliance Summary** panel, you will see:
-- `PENDING_AI_REVIEW` as the overall status
-- Empty compliance gaps and recommendations sections
-- A note explaining that the AI engine is not yet integrated
+Select the uploaded document. The **Compliance Summary** panel polls `GET /analysis/{document_id}` while status is `ANALYZING`, then shows:
+- Overall status (`COMPLIANT`, `NON_COMPLIANT`, or `NEEDS_REVIEW`)
+- Identified DPDP gaps
+- Actionable recommendations
 
-**What this confirms:** The `GET /analysis/{document_id}` endpoint is reachable and returning the expected placeholder structure.
+**What this confirms:** The full upload → extract → RAG → Ollama → persist → display pipeline works end-to-end.
 
 ### Integration Checklist
 
 | Component | How to verify | Expected result |
 |-----------|--------------|-----------------|
-| Frontend is working | Dashboard loads at `localhost:3000` | All panels render without errors |
-| Backend is working | Swagger UI loads at `localhost:8000/docs` | All endpoints return correct responses |
-| Integration is correct | Upload a document from the frontend | Document appears in the table with backend-assigned UUID |
+| Ollama | `curl http://127.0.0.1:11434/api/tags` | Models listed |
+| Frontend | Dashboard loads at `localhost:3000` | All panels render without errors |
+| Backend | Swagger UI at `localhost:8000/docs` | `GET /` shows `ai_engine: "READY"` |
+| Integration | Upload a PDF/DOCX from the frontend | Analysis completes; compliance panel populates |
 
 ---
 
@@ -480,7 +554,7 @@ In the **Compliance Summary** panel, you will see:
 
 ### Backend Not Running
 
-**Symptom:** The frontend upload card shows "Failed to submit document. Is the backend running?" or the documents table shows fallback demo data.
+**Symptom:** The frontend upload card shows "Failed to submit document. Is the backend running?" or the documents table shows a red "Backend offline" message.
 
 **Fix:** Open a terminal, navigate to `backend/`, activate the virtual environment, and run:
 ```bash
@@ -505,6 +579,15 @@ CORS_ORIGINS: list[str] = [
 ```
 
 Restart the backend after changing configuration.
+
+### Ollama Not Running
+
+**Symptom:** `GET /` returns `ai_engine: "OLLAMA_NOT_RUNNING"`. Uploads succeed but analysis stays in `ANALYSIS_FAILED` or never completes.
+
+**Fix:**
+1. Start the Ollama application (or `ollama serve` on Linux).
+2. Pull models: `ollama pull llama3.2` and `ollama pull nomic-embed-text`.
+3. Re-upload or wait for the background task to retry on the next document.
 
 ### API Connection Errors
 
@@ -566,69 +649,49 @@ npm run dev
 
 ---
 
-## 9. AI Integration Note (For Future)
+## 9. AI Engine (Ollama RAG)
 
 ### Current State
 
-ClickComply's AI compliance analysis engine is **intentionally not integrated** at this stage. This is a deliberate architectural decision, not an incomplete feature.
+ClickComply runs **automated DPDP compliance analysis** using:
 
-### How It Works Today
+| Layer | Technology |
+|-------|------------|
+| Text extraction | `pypdf` (PDF), `python-docx` (DOCX) |
+| Vector store | ChromaDB (`backend/chroma_data/`) — Act sections, compliance rules, **DPDP Rules 2025** |
+| Embeddings | Ollama `nomic-embed-text` |
+| LLM evaluation | Ollama `llama3.2` (16 rules from `dpdp_rules.py` + DPDP Rules 2025 in RAG) |
 
-All AI-related logic is isolated in a single file:
+Analysis triggers automatically after file upload via FastAPI `BackgroundTasks`.
 
-```
-backend/app/services/ai_placeholder.py
-```
+### Key Modules
 
-This placeholder service:
-- Implements the exact same function signatures the real AI engine will use
-- Returns deterministic, static responses with the correct data structure
-- Allows the entire frontend and backend to be built, tested, and demonstrated independently of any AI model
+| File | Role |
+|------|------|
+| `backend/app/services/text_extractor.py` | Extract text from uploaded files |
+| `backend/app/services/rag_service.py` | Index document + DPDP rule chunks in Chroma |
+| `backend/app/services/llm_client.py` | Ollama chat + embeddings (OpenAI/Gemini optional) |
+| `backend/app/services/ai_service.py` | Per-rule RAG+LLM compliance evaluation |
+| `backend/app/services/analysis_service.py` | Persist results to `analysis_results` |
 
-### What the Placeholder Returns
+### Configuration
 
-When any compliance analysis is requested, the system returns:
+Copy `backend/.env.example` to `backend/.env` to override defaults:
 
-```json
-{
-  "overall_status": "PENDING_AI_REVIEW",
-  "identified_gaps": [],
-  "recommendations": [],
-  "note": "AI compliance engine not yet integrated..."
-}
-```
+| Variable | Default |
+|----------|---------|
+| `AI_PROVIDER` | `ollama` |
+| `OLLAMA_MODEL` | `llama3.2` |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` |
 
-### How AI Will Be Added (Without Changing APIs)
+See [backend/README.md](backend/README.md) for optional OpenAI/Gemini setup.
 
-When the RAG + LLM engine is ready, the integration requires changes to **only one file**:
+### Performance Notes
 
-1. Replace `backend/app/services/ai_placeholder.py` with a real implementation (e.g., `ai_service.py`).
-2. Maintain the same function signatures:
-   - `async def run_compliance_analysis(document_id: str) -> dict`
-   - `async def check_ai_health() -> dict`
-3. The returned dictionary must match the existing `ComplianceAnalysisResponse` schema (defined in `backend/app/schemas/analysis.py`).
-4. Update `compliance_checks.py` to invoke the LLM with prompts from `dpdp_rules.py`.
-
-**No route files, schema files, frontend components, or API client code need to change.**
-
-### Why This Architecture Matters
-
-| Benefit | Explanation |
-|---------|-------------|
-| Separation of concerns | API contracts are finalized and tested independently of AI model selection |
-| Parallel development | Frontend and backend work can continue while the AI team trains and evaluates models |
-| Single integration point | Reduces risk during AI integration — only one file changes |
-| Testability | The entire system can be verified end-to-end without an AI model running |
-
-### Supporting DPDP Modules
-
-The `backend/app/dpdp/` directory contains structured data ready for AI consumption:
-
-- **`dpdp_sections.py`**: All 8 sections of the DPDP Act 2023 with titles and summaries
-- **`dpdp_rules.py`**: 7 compliance rules with AI prompt hints for each
-- **`compliance_checks.py`**: Per-section compliance check stubs that will call the AI engine
-
-These modules are ready to be wired into the AI pipeline when the engine is connected.
+- Each document runs **16 LLM calls** (one per DPDP compliance rule) plus embedding indexing.
+- First analysis on a typical laptop may take **3–10+ minutes**.
+- The compliance panel polls while status is `ANALYZING`.
 
 ---
 
@@ -636,9 +699,10 @@ These modules are ready to be wired into the AI pipeline when the engine is conn
 
 | Task | Command | URL |
 |------|---------|-----|
+| Pull Ollama models | `ollama pull llama3.2 && ollama pull nomic-embed-text` | — |
 | Start backend | `cd backend && uvicorn app.main:app --reload` | `http://localhost:8000` |
 | View API docs | (backend must be running) | `http://localhost:8000/docs` |
 | Start frontend | `npm run dev` | `http://localhost:3000` |
-| Health check | `curl http://localhost:8000/` | JSON response |
+| Health check | `curl http://localhost:8000/health` | JSON with `ai.status: "READY"` |
 
-Both servers must be running simultaneously for the full application to function. The backend handles data persistence and API logic; the frontend provides the user interface. AI analysis is architecturally ready but intentionally deferred to a future phase.
+Ollama, the backend, and the frontend must all be running for full compliance analysis. Use the [E2E Verification Checklist](#e2e-verification-checklist) in Section 7 before demos.

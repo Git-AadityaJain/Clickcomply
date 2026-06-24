@@ -1,9 +1,7 @@
 """
 SQLAlchemy ORM model for the `analysis_results` table.
 
-Stores the output of compliance analysis runs against uploaded documents.
-Currently populated with placeholder data; will contain real AI output
-once the RAG+LLM engine is integrated.
+Stores persisted output of RAG+LLM compliance analysis runs.
 """
 
 import uuid
@@ -19,9 +17,8 @@ class AnalysisResult(Base):
     """
     Represents a single compliance analysis run for a document.
 
-    The `summary` field is nullable — it will be populated by the
-    AI engine once integrated. Until then, the placeholder service
-    returns a static response without persisting a summary.
+    `result_json` holds the full ComplianceAnalysisResponse payload.
+    `summary` stores the human-readable note from the analysis.
     """
 
     __tablename__ = "analysis_results"

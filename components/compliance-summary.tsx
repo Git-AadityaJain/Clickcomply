@@ -1,6 +1,7 @@
 "use client"
 
-import useSWR from "swr"
+import { useState } from "react"
+import useSWR, { useSWRConfig } from "swr"
 import {
   ClipboardList,
   AlertTriangle,
@@ -9,6 +10,8 @@ import {
   Lightbulb,
   Cpu,
   Loader2,
+  RefreshCw,
+  Download,
 } from "lucide-react"
 import {
   Card,
@@ -18,16 +21,66 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import { useDashboard } from "@/components/dashboard-provider"
-import { getAnalysis, type ComplianceAnalysisResponse } from "@/lib/api"
+import {
+  getAnalysis,
+  rerunAnalysis,
+  type ComplianceAnalysisResponse,
+} from "@/lib/api"
 
 function shouldPollAnalysis(data?: ComplianceAnalysisResponse) {
   if (!data) return true
   return data.overall_status === "ANALYZING" || data.overall_status === "PENDING_AI_REVIEW"
 }
 
+function downloadBlob(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportAnalysisJson(
+  documentId: string,
+  analysis: ComplianceAnalysisResponse
+) {
+  downloadBlob(
+    `clickcomply-analysis-${documentId.slice(0, 8)}.json`,
+    JSON.stringify(analysis, null, 2),
+    "application/json"
+  )
+}
+
+function exportGapsCsv(
+  documentId: string,
+  analysis: ComplianceAnalysisResponse
+) {
+  const header = "section,severity,description"
+  const rows = analysis.identified_gaps.map((gap) =>
+    [gap.section, gap.severity, `"${gap.description.replace(/"/g, '""')}"`].join(",")
+  )
+  const recHeader = "\n\nsection,priority,action"
+  const recRows = analysis.recommendations.map((rec) =>
+    [rec.section, rec.priority, `"${rec.action.replace(/"/g, '""')}"`].join(",")
+  )
+  const csv = [header, ...rows, recHeader, ...recRows].join("\n")
+  downloadBlob(
+    `clickcomply-gaps-${documentId.slice(0, 8)}.csv`,
+    csv,
+    "text/csv"
+  )
+}
+
 export function ComplianceSummary() {
   const { selectedDocumentId } = useDashboard()
+  const { mutate } = useSWRConfig()
+  const [rerunError, setRerunError] = useState<string | null>(null)
+  const [isRerunning, setIsRerunning] = useState(false)
 
   const { data, error, isLoading } = useSWR(
     selectedDocumentId ? `/analysis/${selectedDocumentId}` : null,
@@ -37,6 +90,21 @@ export function ComplianceSummary() {
       revalidateOnFocus: true,
     }
   )
+
+  async function handleRerun() {
+    if (!selectedDocumentId) return
+    setRerunError(null)
+    setIsRerunning(true)
+    try {
+      await rerunAnalysis(selectedDocumentId)
+      await mutate(`/analysis/${selectedDocumentId}`)
+      await mutate("/documents")
+    } catch (err) {
+      setRerunError(err instanceof Error ? err.message : "Re-run failed")
+    } finally {
+      setIsRerunning(false)
+    }
+  }
 
   if (!selectedDocumentId) {
     return (
@@ -64,25 +132,111 @@ export function ComplianceSummary() {
   const isAnalyzing =
     analysis?.overall_status === "ANALYZING" ||
     analysis?.overall_status === "PENDING_AI_REVIEW"
+  const canRerun =
+    analysis &&
+    !isAnalyzing &&
+    !isRerunning &&
+    analysis.overall_status !== "PENDING_AI_REVIEW"
+  const canExport =
+    analysis &&
+    !isAnalyzing &&
+    (analysis.identified_gaps.length > 0 ||
+      analysis.recommendations.length > 0 ||
+      analysis.overall_status === "COMPLIANT")
+
+  const progressPercent = analysis?.progress
+    ? Math.round((analysis.progress.current / analysis.progress.total) * 100)
+    : isAnalyzing
+      ? 8
+      : 0
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ClipboardList className="h-4 w-4 text-primary" />
-          Compliance Review Summary
-          {(isLoading || isAnalyzing) && (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          )}
-        </CardTitle>
-        <CardDescription>
-          DPDP Act gap analysis and compliance recommendations
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ClipboardList className="h-4 w-4 text-primary" />
+              Compliance Review Summary
+              {(isLoading || isAnalyzing || isRerunning) && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              )}
+            </CardTitle>
+            <CardDescription>
+              DPDP Act gap analysis and compliance recommendations
+              {analysis?.rules_evaluated
+                ? ` · ${analysis.rules_evaluated} rules evaluated`
+                : ""}
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {canExport && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportAnalysisJson(selectedDocumentId, analysis)}
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  JSON
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportGapsCsv(selectedDocumentId, analysis)}
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  CSV
+                </Button>
+              </>
+            )}
+            {canRerun && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRerun}
+                disabled={isRerunning}
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                Re-run analysis
+              </Button>
+            )}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         {error && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
             Failed to load analysis: {error.message}
+          </div>
+        )}
+
+        {rerunError && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {rerunError}
+          </div>
+        )}
+
+        {isAnalyzing && (
+          <div className="flex flex-col gap-2 rounded-lg border border-primary/20 bg-primary/5 p-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-foreground">Analysis in progress</span>
+              {analysis?.progress ? (
+                <span className="text-muted-foreground">
+                  Rule {analysis.progress.current} of {analysis.progress.total}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Starting…</span>
+              )}
+            </div>
+            <Progress value={progressPercent} className="h-2" />
+            {analysis?.progress && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-mono">{analysis.progress.rule_id}</span>
+                {" — "}
+                {analysis.progress.rule_label}
+              </p>
+            )}
           </div>
         )}
 

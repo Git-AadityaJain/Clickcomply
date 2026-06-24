@@ -20,3 +20,4 @@ backend/chroma_data/
 backend/.env
 debug-*.log
 .cursor/
+tsconfig.tsbuildinfo

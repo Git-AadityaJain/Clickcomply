@@ -1,12 +1,8 @@
 """
 Pydantic schemas for compliance analysis request and response payloads.
-
-The response structure is designed to remain stable after AI integration.
-The `identified_gaps` and `recommendations` lists will be populated by
-the AI engine; until then they are returned empty with a status note.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ComplianceGap(BaseModel):
@@ -25,16 +21,32 @@ class Recommendation(BaseModel):
     priority: str  # e.g. "CRITICAL", "HIGH", "MEDIUM", "LOW"
 
 
-class ComplianceAnalysisResponse(BaseModel):
-    """
-    Response body for GET /analysis/{document_id}.
+class AnalysisProgress(BaseModel):
+    """Rule-by-rule progress while analysis is running."""
 
-    This schema is the contract between frontend and backend.
-    It will NOT change when AI is integrated — only the data
-    populating it will become dynamic instead of static.
-    """
+    current: int
+    total: int
+    rule_id: str
+    rule_label: str
+
+
+class ComplianceAnalysisResponse(BaseModel):
+    """Response body for GET /analysis/{document_id}."""
 
     overall_status: str
     identified_gaps: list[ComplianceGap]
     recommendations: list[Recommendation]
     note: str
+    progress: AnalysisProgress | None = None
+    rules_evaluated: int | None = Field(
+        default=None,
+        description="Number of DPDP rules evaluated (present when analysis is complete).",
+    )
+
+
+class AnalysisRerunResponse(BaseModel):
+    """Response body for POST /analysis/{document_id}/rerun."""
+
+    document_id: str
+    status: str
+    message: str
