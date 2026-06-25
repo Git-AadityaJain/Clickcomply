@@ -106,7 +106,12 @@ Activate the virtual environment:
 
 ```bash
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+```
+
+From the **project root**, start the backend (keep this terminal open):
+
+```bash
+npm run dev:backend
 ```
 
 - API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -206,7 +211,7 @@ Full step-by-step checklist: [GUIDE.md §7](GUIDE.md#7-end-to-end-testing-fronte
 
 | Problem | What to check |
 |---------|---------------|
-| Upload fails | Backend running? `uvicorn app.main:app --reload` from `backend/` |
+| Upload fails | Backend running? `npm run dev:backend` in a separate terminal |
 | Table shows "Backend offline" | Start backend on port 8000; check `NEXT_PUBLIC_API_URL` |
 | `OLLAMA_NOT_RUNNING` on health check | Start Ollama; pull `llama3.2` and `nomic-embed-text` |
 | Stuck on `ANALYZING` or `ANALYSIS_FAILED` | Ollama may be slow or timed out; check backend terminal logs |

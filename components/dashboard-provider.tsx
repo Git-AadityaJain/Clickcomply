@@ -30,6 +30,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   )
   const [isSessionReady, setIsSessionReady] = useState(false)
   const selectedDocumentIdRef = useRef<string | null>(null)
+  const sessionCleanupDone = useRef(false)
   const { isOnline, isLoading } = useBackendHealth()
   const { mutate } = useSWRConfig()
 
@@ -42,6 +43,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setIsSessionReady(true)
       return
     }
+
+    // Prune ephemeral reviews once per page load — not on every health reconnect.
+    if (sessionCleanupDone.current) {
+      setIsSessionReady(true)
+      return
+    }
+    sessionCleanupDone.current = true
 
     let cancelled = false
     setIsSessionReady(false)

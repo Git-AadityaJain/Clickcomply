@@ -426,7 +426,7 @@ You need **two terminals** running at the same time:
 
 | Terminal | Directory | Command | URL |
 |----------|-----------|---------|-----|
-| Terminal 1 | `backend/` | `uvicorn app.main:app --reload` | `http://localhost:8000` |
+| Terminal 1 | Project root | `npm run dev:backend` | `http://localhost:8000` |
 | Terminal 2 | Project root | `npm run dev` | `http://localhost:3000` |
 
 **VS Code tip:** Use the split terminal feature (`Ctrl+Shift+5` or `Cmd+Shift+5`) to see both terminals side by side.
@@ -672,7 +672,7 @@ See [backend/README.md](backend/README.md) for optional OpenAI/Gemini setup.
 | Task | Command | URL |
 |------|---------|-----|
 | Pull Ollama models | `ollama pull llama3.2 && ollama pull nomic-embed-text` | - |
-| Start backend | `cd backend && uvicorn app.main:app --reload` | `http://localhost:8000` |
+| Start backend | `npm run dev:backend` | `http://localhost:8000` |
 | View API docs | (backend must be running) | `http://localhost:8000/docs` |
 | Start frontend | `npm run dev` | `http://localhost:3000` |
 | Health check | `curl http://localhost:8000/health` | JSON with `ai.status: "READY"` |

@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Upload, CheckCircle2, AlertCircle, Download, X } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Upload, CheckCircle2, AlertCircle, Download, X, WifiOff } from "lucide-react"
 import { useSWRConfig } from "swr"
 import {
   ingestDocument,
@@ -13,6 +13,12 @@ import {
 import type { ApplicabilityReport } from "@/lib/org-profile"
 import type { WizardCompletePayload } from "@/lib/org-profile"
 import { upsertCachedDocument } from "@/lib/document-cache"
+import {
+  clearActiveReview,
+  loadActiveReview,
+  saveActiveReview,
+  type ActiveReviewState,
+} from "@/lib/active-review-session"
 import { useDashboard } from "@/components/dashboard-provider"
 import { OrgQuestionnaireWizard } from "@/components/org-questionnaire-wizard"
 import { ApplicabilitySummary } from "@/components/applicability-summary"
@@ -22,12 +28,41 @@ import { Button } from "@/components/ui/button"
 type FlowPhase = "questionnaire" | "done"
 type UploadStage = "idle" | "saving" | "uploading" | "analyzing"
 
+function restoreFromSession(): {
+  phase: FlowPhase
+  documentId: string | null
+  applicability: ApplicabilityReport | null
+  draftReady: boolean
+  draftFormat: "docx" | "pdf"
+} {
+  const saved = loadActiveReview()
+  if (!saved) {
+    return {
+      phase: "questionnaire",
+      documentId: null,
+      applicability: null,
+      draftReady: false,
+      draftFormat: "docx",
+    }
+  }
+  return {
+    phase: saved.phase,
+    documentId: saved.documentId,
+    applicability: saved.applicability,
+    draftReady: saved.draftReady,
+    draftFormat: saved.draftFormat,
+  }
+}
+
 export function DocumentUpload() {
-  const [phase, setPhase] = useState<FlowPhase>("questionnaire")
-  const [documentId, setDocumentId] = useState<string | null>(null)
-  const [applicability, setApplicability] = useState<ApplicabilityReport | null>(null)
-  const [draftReady, setDraftReady] = useState(false)
-  const [draftFormat, setDraftFormat] = useState<"docx" | "pdf">("docx")
+  const restored = restoreFromSession()
+  const [phase, setPhase] = useState<FlowPhase>(restored.phase)
+  const [documentId, setDocumentId] = useState<string | null>(restored.documentId)
+  const [applicability, setApplicability] = useState<ApplicabilityReport | null>(
+    restored.applicability
+  )
+  const [draftReady, setDraftReady] = useState(restored.draftReady)
+  const [draftFormat, setDraftFormat] = useState<"docx" | "pdf">(restored.draftFormat)
   const [stage, setStage] = useState<UploadStage>("idle")
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -35,7 +70,19 @@ export function DocumentUpload() {
   const { setSelectedDocumentId, isBackendOnline } = useDashboard()
   const backendLabel = formatBackendUrl()
 
+  useEffect(() => {
+    const saved = loadActiveReview()
+    if (saved?.documentId) {
+      setSelectedDocumentId(saved.documentId)
+    }
+  }, [setSelectedDocumentId])
+
+  function persistReviewState(next: ActiveReviewState) {
+    saveActiveReview(next)
+  }
+
   function resetAll() {
+    clearActiveReview()
     setPhase("questionnaire")
     setDocumentId(null)
     setApplicability(null)
@@ -94,6 +141,13 @@ export function DocumentUpload() {
       if (policyFile) mutate(`/analysis/${id}`)
       setPhase("done")
       setStage("idle")
+      persistReviewState({
+        phase: "done",
+        documentId: id,
+        applicability: result.applicability ?? null,
+        draftReady: generateDraft,
+        draftFormat: fmt,
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.")
       setStage("idle")
@@ -107,7 +161,9 @@ export function DocumentUpload() {
     window.open(`${API_BASE}/documents/${documentId}/suggested-policy/download`, "_blank")
   }
 
-  if (!isBackendOnline) {
+  const savedReview = phase === "done" && documentId
+
+  if (!isBackendOnline && !savedReview) {
     return (
       <Card>
         <CardHeader>
@@ -115,9 +171,37 @@ export function DocumentUpload() {
             <Upload className="h-4 w-4 text-primary" />
             New privacy review
           </CardTitle>
-          <CardDescription>Start the server ({backendLabel}) to begin.</CardDescription>
+          <CardDescription>
+            Start the backend on {backendLabel}, then the frontend on localhost:3000.
+          </CardDescription>
         </CardHeader>
       </Card>
+    )
+  }
+
+  if (!isBackendOnline && savedReview) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-warning-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Backend disconnected ({backendLabel}). Your review is saved — reconnect the server
+            to continue checking results.
+          </p>
+        </div>
+        {applicability && <ApplicabilitySummary report={applicability} />}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-success">
+              <CheckCircle2 className="h-4 w-4" />
+              Review saved
+            </CardTitle>
+            <CardDescription>
+              Results and documents refresh automatically when the backend is back online.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
     )
   }
 

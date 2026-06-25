@@ -105,11 +105,8 @@ export function OrgQuestionnaireWizard({ onComplete, disabled = false }: OrgQues
             <Field label="Privacy email">
               <Input type="email" value={profile.contact_email} onChange={(e) => update("contact_email", e.target.value)} disabled={disabled} />
             </Field>
-            <Field label="Grievance officer name">
+            <Field label="Grievance officer name" className="sm:col-span-2">
               <Input value={profile.grievance_officer_name} onChange={(e) => update("grievance_officer_name", e.target.value)} disabled={disabled} />
-            </Field>
-            <Field label="Their job title">
-              <Input value={profile.grievance_officer_designation} onChange={(e) => update("grievance_officer_designation", e.target.value)} disabled={disabled} />
             </Field>
           </div>
         )}

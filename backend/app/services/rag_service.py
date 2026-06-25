@@ -149,13 +149,25 @@ def init_dpdp_knowledge_base() -> None:
     logger.info(f"Seeded {len(documents)} DPDP knowledge chunks into Chroma")
 
 
-def index_document_text(document_id: str, text: str) -> None:
-    """Chunk and index uploaded document text for retrieval."""
+def index_document_text(
+    document_id: str, text: str, skip_if_indexed: bool = False
+) -> None:
+    """Chunk and index uploaded document text for retrieval.
+
+    Args:
+        skip_if_indexed: When True, skip re-indexing if this document already
+            has chunks in the store. Use for normal analysis runs where the
+            document text is unchanged. Pass False (default) when the
+            document has been re-uploaded or replaced.
+    """
     collection = _get_document_collection()
 
-    # Remove prior chunks for this document (re-upload / re-analysis)
     existing = collection.get(where={"document_id": document_id})
     if existing["ids"]:
+        if skip_if_indexed:
+            logger.debug(f"Document {document_id} already indexed — skipping re-index")
+            return
+        # Force re-index (e.g. re-upload): remove old chunks first
         collection.delete(ids=existing["ids"])
 
     chunks = _chunk_text(text)

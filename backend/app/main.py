@@ -36,16 +36,15 @@ async def lifespan(app: FastAPI):
             f"DPDP knowledge base seeding skipped (configure AI keys in .env): {exc}"
         )
 
-    from app.services.session_storage_service import (
-        apply_session_lifecycle_policy_on_startup,
-        apply_session_lifecycle_policy_on_shutdown,
-    )
-
-    await apply_session_lifecycle_policy_on_startup()
-
     yield
 
-    await apply_session_lifecycle_policy_on_shutdown()
+    if settings.CLEAR_EPHEMERAL_ON_SHUTDOWN:
+        from app.services.session_storage_service import (
+            apply_session_lifecycle_policy_on_shutdown,
+        )
+
+        await apply_session_lifecycle_policy_on_shutdown()
+
     logger.info(f"Shutting down {settings.APP_NAME}")
 
 
@@ -84,9 +83,18 @@ async def root():
     }
 
 
+@app.get("/health/live", tags=["Health"])
+async def health_live():
+    """Fast liveness probe — no AI or vector DB initialization."""
+    return {
+        "app": settings.APP_NAME,
+        "status": "healthy",
+    }
+
+
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Detailed health check endpoint."""
+    """Detailed health check endpoint (AI subsystem status)."""
     from app.services.ai_service import check_ai_health
 
     ai_status = await check_ai_health()

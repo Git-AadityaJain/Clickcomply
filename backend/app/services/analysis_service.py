@@ -108,8 +108,8 @@ async def trigger_analysis_rerun(document_id: str, db: AsyncSession) -> dict:
     if document.status == "ANALYZING":
         raise ValueError("Analysis is already in progress for this document.")
 
-    if not document.stored_filename:
-        raise ValueError("Please upload your privacy policy first.")
+    if not document.stored_filename and not document.generated_policy_md:
+        raise ValueError("Please upload your privacy policy or generate a draft first.")
 
     clear_analysis_progress(document_id)
     clear_cancel_request(document_id)
@@ -120,6 +120,30 @@ async def trigger_analysis_rerun(document_id: str, db: AsyncSession) -> dict:
         "document_id": document_id,
         "status": "QUEUED_FOR_ANALYSIS",
         "message": "Compliance analysis queued. Results will update when complete.",
+    }
+
+
+async def trigger_draft_analysis(document_id: str, db: AsyncSession) -> dict:
+    """Queue compliance analysis against the generated policy draft (no upload required)."""
+    document = await get_document_by_id(db, document_id)
+    if document is None:
+        raise ValueError(f"Document {document_id} not found")
+
+    if document.status == "ANALYZING":
+        raise ValueError("Analysis is already in progress for this document.")
+
+    if not document.generated_policy_md:
+        raise ValueError("No generated policy draft found. Please generate a draft policy first.")
+
+    clear_analysis_progress(document_id)
+    clear_cancel_request(document_id)
+    document.status = "QUEUED_FOR_ANALYSIS"
+    await db.commit()
+
+    return {
+        "document_id": document_id,
+        "status": "QUEUED_FOR_ANALYSIS",
+        "message": "Draft policy analysis queued. Results will update when complete.",
     }
 
 
@@ -147,7 +171,8 @@ async def run_and_persist_analysis(document_id: str) -> None:
             if overall == "ANALYSIS_FAILED":
                 document.status = "ANALYSIS_FAILED"
             elif overall == "ANALYSIS_CANCELLED":
-                document.status = "AWAITING_AI_ANALYSIS" if document.stored_filename else "AWAITING_UPLOAD"
+                has_content = document.stored_filename or document.generated_policy_md
+                document.status = "AWAITING_AI_ANALYSIS" if has_content else "AWAITING_UPLOAD"
             elif overall == "PENDING_AI_REVIEW":
                 document.status = "AWAITING_AI_ANALYSIS"
             elif overall in ("COMPLIANT", "NON_COMPLIANT", "NEEDS_REVIEW"):

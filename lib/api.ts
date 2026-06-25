@@ -40,6 +40,11 @@ export interface HealthResponse {
   }
 }
 
+export interface LivenessResponse {
+  app?: string
+  status?: string
+}
+
 async function parseErrorResponse(
   res: Response,
   fallback: string,
@@ -226,6 +231,10 @@ export const fetcher = (url: string) => fetchJson(`${API_BASE}${url}`)
 
 /** Health endpoint fetcher (shared across dashboard) */
 export const healthFetcher = () => fetchJson<HealthResponse>(`${API_BASE}/health`)
+
+/** Fast liveness probe — used to detect backend reachability without AI init */
+export const livenessFetcher = () =>
+  fetchJson<LivenessResponse>(`${API_BASE}/health/live`)
 
 export interface GeneratePolicyResponse {
   document_id: string

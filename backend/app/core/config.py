@@ -31,6 +31,12 @@ class Settings:
     PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
+    # Ephemeral uploads are pruned via POST /documents/prune-session (browser refresh).
+    # Optional shutdown wipe for deployments that want a clean server stop.
+    CLEAR_EPHEMERAL_ON_SHUTDOWN: bool = (
+        os.getenv("CLEAR_EPHEMERAL_ON_SHUTDOWN", "false").lower() == "true"
+    )
+
     # Database: defaults to SQLite for local development.
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
@@ -57,7 +63,7 @@ class Settings:
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
     OLLAMA_EMBEDDING_MODEL: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
-    OLLAMA_TIMEOUT_SECONDS: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300"))
+    OLLAMA_TIMEOUT_SECONDS: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "360"))
 
     # Optional paid cloud providers
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -70,11 +76,20 @@ class Settings:
     GEMINI_EMBEDDING_MODEL: str = os.getenv(
         "GEMINI_EMBEDDING_MODEL", "models/text-embedding-004"
     )
-    AI_MAX_DOCUMENT_CHARS: int = int(os.getenv("AI_MAX_DOCUMENT_CHARS", "12000"))
-    RAG_CHUNK_SIZE: int = int(os.getenv("RAG_CHUNK_SIZE", "900"))
-    RAG_CHUNK_OVERLAP: int = int(os.getenv("RAG_CHUNK_OVERLAP", "120"))
-    RAG_TOP_K_DPDP: int = int(os.getenv("RAG_TOP_K_DPDP", "3"))
-    RAG_TOP_K_DOCUMENT: int = int(os.getenv("RAG_TOP_K_DOCUMENT", "5"))
+    # Full document text is always injected into every rule prompt up to
+    # AI_MAX_DOCUMENT_CHARS. For documents larger than this limit, the text
+    # is split: the first AI_MAX_DOC_HEAD_CHARS chars + the last
+    # AI_MAX_DOC_TAIL_CHARS chars are always included (capturing intro and
+    # contact/grievance sections), and RAG retrieval adds the most relevant
+    # middle chunks on top. This ensures strict, equal treatment at every size.
+    AI_MAX_DOCUMENT_CHARS: int = int(os.getenv("AI_MAX_DOCUMENT_CHARS", "32000"))
+    AI_MAX_DOC_HEAD_CHARS: int = int(os.getenv("AI_MAX_DOC_HEAD_CHARS", "14000"))
+    AI_MAX_DOC_TAIL_CHARS: int = int(os.getenv("AI_MAX_DOC_TAIL_CHARS", "8000"))
+    AI_MAX_RAG_SUPPLEMENT_CHARS: int = int(os.getenv("AI_MAX_RAG_SUPPLEMENT_CHARS", "6000"))
+    RAG_CHUNK_SIZE: int = int(os.getenv("RAG_CHUNK_SIZE", "1200"))
+    RAG_CHUNK_OVERLAP: int = int(os.getenv("RAG_CHUNK_OVERLAP", "200"))
+    RAG_TOP_K_DPDP: int = int(os.getenv("RAG_TOP_K_DPDP", "4"))
+    RAG_TOP_K_DOCUMENT: int = int(os.getenv("RAG_TOP_K_DOCUMENT", "8"))
     CHROMA_DIR: Path = Path(
         os.getenv("CHROMA_DIR", str(_BACKEND_ROOT / "chroma_data"))
     )

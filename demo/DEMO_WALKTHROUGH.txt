@@ -1,0 +1,94 @@
+ClickComply demo — questionnaire vs policy check
+===============================================
+
+Files
+-----
+- NovaStack_Demo_Privacy_Policy.docx  (upload this)
+- generate_demo_policy.py             (re-create DOCX if needed)
+
+Prerequisites
+-------------
+1. Backend running (Ollama + AI configured)
+2. Frontend at http://localhost:3000
+
+Questionnaire — answer exactly this
+-----------------------------------
+Step 1 — Your company
+  Company name:           NovaStack Solutions Pvt Ltd
+  Website:                https://novastack.example
+  Privacy email:          privacy@novastack.example
+  Grievance officer name: Priya Sharma
+  Their job title:        Grievance Officer
+
+Step 2 — Your service
+  Main processing:        Website or app with user accounts
+  Who uses your service:  Business customers
+
+Step 3 — Data & storage
+  Personal data:          Login and account details
+  Where stored:           India
+  Use AI on personal data: No
+  Outside companies:      Yes
+  Analytics/cookies:      No
+  Retention after delete: 90 days
+
+Step 4 — Extra checks
+  Service for under 18:   No
+  Users outside India:    No
+  Security measures:      Yes
+  Sells personal data:    Off
+  Shares for advertising: Off
+
+Step 5 — Your policy
+  Upload: NovaStack_Demo_Privacy_Policy.docx
+  Suggested draft:        Off (optional)
+
+What to verify — "What we will check" (right after Finish)
+----------------------------------------------------------
+Should show ~14 rules apply and 2 do NOT apply:
+
+  DOES NOT APPLY (skipped in analysis):
+    - Children's data (under 18)     — you said No
+    - Consent Manager (if you use one) — you said No AI
+
+  APPLIES (will be checked), including:
+    - Third parties who process data — you said Yes
+    - Grievance officer              — you named Priya Sharma
+    - Data breach notification
+    - Privacy notice, consent, rights, etc.
+
+What to verify — during analysis
+--------------------------------
+Progress should show about 14 checks (not 16), because 2 rules are skipped.
+
+What to verify — Results (after analysis completes)
+---------------------------------------------------
+The demo policy is intentionally thin. Expect gaps similar to:
+
+  LIKELY GAPS (policy missing what questionnaire declared):
+    - Grievance officer / 90-day complaints — policy never names Priya Sharma
+    - Third parties / processors          — you said Yes but policy is silent
+    - Data breach notification            — not mentioned in policy
+    - Complaint to Data Protection Board  — not mentioned
+
+  MAY PASS OR NEEDS REVIEW:
+    - Privacy notice (basic collection described)
+    - Contact for privacy questions (email given)
+    - Security (brief mention)
+    - User rights (access/correction mentioned)
+
+Overall status will often be NON_COMPLIANT or NEEDS_REVIEW — that is expected.
+
+How this proves questionnaire works
+-----------------------------------
+1. Skipped rules: only 2 "does not apply" → analysis runs ~14 rules, not 16.
+2. Tailored failures: vendor + grievance gaps appear because YOU said third parties
+   and named an officer — the AI checks the policy against those facts.
+3. Change one answer and re-test:
+   - Set "Outside companies" to No → vendor rule becomes softer (APPLICABLE not REQUIRED)
+   - Set "Use AI" to Yes → Consent Manager rule appears in the checklist again
+
+Re-generate the DOCX
+--------------------
+  cd demo
+  python generate_demo_policy.py

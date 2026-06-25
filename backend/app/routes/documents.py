@@ -35,7 +35,7 @@ from app.services.document_service import (
     document_list_item_fields,
     parse_org_profile,
 )
-from app.services.analysis_service import run_and_persist_analysis
+from app.services.analysis_service import run_and_persist_analysis, trigger_draft_analysis
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -199,3 +199,21 @@ async def upload_file(
     except IOError as e:
         logger.error(f"Failed to save file for document {document_id}: {e}")
         raise HTTPException(status_code=500, detail="We could not save your file. Please try again.")
+
+
+@router.post("/{document_id}/analyze-draft", response_model=DocumentStatusResponse)
+async def analyze_draft(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> DocumentStatusResponse:
+    """Queue compliance analysis against the generated policy draft (no file upload needed)."""
+    try:
+        result = await trigger_draft_analysis(document_id, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    background_tasks.add_task(run_and_persist_analysis, document_id)
+    return DocumentStatusResponse(
+        document_id=document_id,
+        status=_display_status(result["status"]),
+    )

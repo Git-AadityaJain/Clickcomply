@@ -10,23 +10,8 @@ const _jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-je
 export const metadata: Metadata = {
   title: 'ClickComply — DPDP Policy Review',
   description: 'Upload a privacy policy for an automated DPDP compliance check.',
-  generator: 'v0.app',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/icon.svg',
   },
 }
 

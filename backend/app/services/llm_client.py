@@ -132,7 +132,10 @@ def _complete_ollama(system_prompt: str, user_prompt: str) -> str:
                 ],
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0.1},
+                "options": {
+                    "temperature": 0.0,  # deterministic — no sampling overhead
+                    "num_predict": 200,  # cap generation — our JSON fits in ~100 tokens
+                },
             },
             timeout=settings.OLLAMA_TIMEOUT_SECONDS,
         )

@@ -130,6 +130,7 @@ export function ComplianceSummary() {
 
   if (!isBackendOnline) {
     const backendLabel = formatBackendUrl()
+    const hasSelection = Boolean(selectedDocumentId)
     return (
       <Card>
         <CardHeader className="pb-3">
@@ -141,7 +142,9 @@ export function ComplianceSummary() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Connect to {backendLabel} to run checks.
+            {hasSelection
+              ? `Reconnect to ${backendLabel} — your review is still on disk and will reload automatically.`
+              : `Connect to ${backendLabel} to run checks.`}
           </p>
         </CardContent>
       </Card>

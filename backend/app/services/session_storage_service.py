@@ -1,8 +1,9 @@
 """
 Session-scoped upload storage.
 
-Ephemeral uploads (remember=false) are cleared on server shutdown, startup,
-and when the browser opens or refreshes the site.
+Ephemeral uploads (remember=false) are cleared when the browser opens or
+refreshes the site (POST /documents/prune-session). Optional shutdown wipe
+is controlled by CLEAR_EPHEMERAL_ON_SHUTDOWN.
 """
 
 from __future__ import annotations
@@ -80,10 +81,6 @@ async def clear_ephemeral_uploads(
             logger.info(f"Cleared {len(removed_ids)} ephemeral document(s)")
 
     return removed_ids
-
-
-async def apply_session_lifecycle_policy_on_startup() -> None:
-    await clear_ephemeral_uploads()
 
 
 async def apply_session_lifecycle_policy_on_shutdown() -> None:

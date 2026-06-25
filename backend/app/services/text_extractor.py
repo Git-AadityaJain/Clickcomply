@@ -75,8 +75,31 @@ def _extract_docx(file_content: bytes) -> str:
 
     try:
         doc = Document(BytesIO(file_content))
-        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        combined = "\n\n".join(paragraphs)
+        parts: list[str] = []
+
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if not text:
+                continue
+            style = para.style.name if para.style else ""
+            # Preserve heading structure so LLM can locate sections by name
+            if style.startswith("Heading 1") or style.startswith("Title"):
+                parts.append(f"\n## {text}")
+            elif style.startswith("Heading 2"):
+                parts.append(f"\n### {text}")
+            elif style.startswith("Heading"):
+                parts.append(f"\n#### {text}")
+            else:
+                parts.append(text)
+
+        # Extract table content (DPO tables, contact tables, etc.)
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
+
+        combined = "\n\n".join(parts)
         if not combined.strip():
             raise TextExtractionError("DOCX contains no extractable text")
         return combined
