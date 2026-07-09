@@ -8,7 +8,7 @@ Actual file content is NOT stored; this table records ingestion metadata only.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, DateTime, Integer, Text, Boolean
+from sqlalchemy import String, DateTime, Integer, Text, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -45,6 +45,14 @@ class Document(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+    # Owner of this review. Nullable so anonymous reviews keep working when
+    # REQUIRE_AUTH is disabled; required at the route layer when auth is on.
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     # File upload metadata
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     upload_timestamp: Mapped[datetime | None] = mapped_column(
@@ -66,6 +74,10 @@ class Document(Base):
         "AnalysisResult",
         back_populates="document",
         cascade="all, delete-orphan",
+    )
+    user: Mapped["User | None"] = relationship(
+        "User",
+        back_populates="documents",
     )
 
     def __repr__(self) -> str:

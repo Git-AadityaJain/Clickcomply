@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.logging import logger
-from app.routes import documents, analysis
+from app.routes import documents, analysis, auth
 
 
 @asynccontextmanager
@@ -23,6 +23,14 @@ async def lifespan(app: FastAPI):
     Runs database initialization on startup and logs shutdown.
     """
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+
+    if settings.REQUIRE_AUTH and settings.JWT_SECRET == "dev-insecure-change-me":
+        raise RuntimeError(
+            "REQUIRE_AUTH is enabled but JWT_SECRET is unset. "
+            "Set a strong JWT_SECRET before enabling auth."
+        )
+    logger.info(f"Auth required: {settings.REQUIRE_AUTH}")
+
     await init_db()
     logger.info("Database tables initialized")
 
@@ -65,6 +73,7 @@ app.add_middleware(
 )
 
 # Register route modules
+app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(analysis.router)
 

@@ -20,6 +20,7 @@ import {
   type ActiveReviewState,
 } from "@/lib/active-review-session"
 import { useDashboard } from "@/components/dashboard-provider"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { OrgQuestionnaireWizard } from "@/components/org-questionnaire-wizard"
 import { ApplicabilitySummary } from "@/components/applicability-summary"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,41 +29,13 @@ import { Button } from "@/components/ui/button"
 type FlowPhase = "questionnaire" | "done"
 type UploadStage = "idle" | "saving" | "uploading" | "analyzing"
 
-function restoreFromSession(): {
-  phase: FlowPhase
-  documentId: string | null
-  applicability: ApplicabilityReport | null
-  draftReady: boolean
-  draftFormat: "docx" | "pdf"
-} {
-  const saved = loadActiveReview()
-  if (!saved) {
-    return {
-      phase: "questionnaire",
-      documentId: null,
-      applicability: null,
-      draftReady: false,
-      draftFormat: "docx",
-    }
-  }
-  return {
-    phase: saved.phase,
-    documentId: saved.documentId,
-    applicability: saved.applicability,
-    draftReady: saved.draftReady,
-    draftFormat: saved.draftFormat,
-  }
-}
-
 export function DocumentUpload() {
-  const restored = restoreFromSession()
-  const [phase, setPhase] = useState<FlowPhase>(restored.phase)
-  const [documentId, setDocumentId] = useState<string | null>(restored.documentId)
-  const [applicability, setApplicability] = useState<ApplicabilityReport | null>(
-    restored.applicability
-  )
-  const [draftReady, setDraftReady] = useState(restored.draftReady)
-  const [draftFormat, setDraftFormat] = useState<"docx" | "pdf">(restored.draftFormat)
+  const hydrated = useHydrated()
+  const [phase, setPhase] = useState<FlowPhase>("questionnaire")
+  const [documentId, setDocumentId] = useState<string | null>(null)
+  const [applicability, setApplicability] = useState<ApplicabilityReport | null>(null)
+  const [draftReady, setDraftReady] = useState(false)
+  const [draftFormat, setDraftFormat] = useState<"docx" | "pdf">("docx")
   const [stage, setStage] = useState<UploadStage>("idle")
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -72,7 +45,13 @@ export function DocumentUpload() {
 
   useEffect(() => {
     const saved = loadActiveReview()
-    if (saved?.documentId) {
+    if (!saved) return
+    setPhase(saved.phase)
+    setDocumentId(saved.documentId)
+    setApplicability(saved.applicability)
+    setDraftReady(saved.draftReady)
+    setDraftFormat(saved.draftFormat)
+    if (saved.documentId) {
       setSelectedDocumentId(saved.documentId)
     }
   }, [setSelectedDocumentId])
@@ -123,6 +102,7 @@ export function DocumentUpload() {
           has_org_profile: true,
           has_generated_policy: generateDraft,
           has_uploaded_file: true,
+          remember: false,
         })
       } else {
         upsertCachedDocument({
@@ -134,6 +114,7 @@ export function DocumentUpload() {
           has_org_profile: true,
           has_generated_policy: generateDraft,
           has_uploaded_file: false,
+          remember: false,
         })
       }
 
@@ -162,8 +143,9 @@ export function DocumentUpload() {
   }
 
   const savedReview = phase === "done" && documentId
+  const showBackendOffline = hydrated && !isBackendOnline
 
-  if (!isBackendOnline && !savedReview) {
+  if (showBackendOffline && !savedReview) {
     return (
       <Card>
         <CardHeader>
@@ -179,7 +161,7 @@ export function DocumentUpload() {
     )
   }
 
-  if (!isBackendOnline && savedReview) {
+  if (showBackendOffline && savedReview) {
     return (
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3">

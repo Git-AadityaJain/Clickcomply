@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import useSWR, { useSWRConfig } from "swr"
 import {
   ClipboardList,
@@ -29,6 +29,7 @@ import {
   rerunAnalysis,
   cancelAnalysis,
   formatBackendUrl,
+  AnalysisNotFoundError,
   type ComplianceAnalysisResponse,
 } from "@/lib/api"
 
@@ -86,6 +87,8 @@ export function ComplianceSummary() {
   const [isRerunning, setIsRerunning] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
 
+  const notFoundRef = useRef(false)
+
   const { data, error, isLoading } = useSWR(
     isBackendOnline && selectedDocumentId
       ? `/analysis/${selectedDocumentId}`
@@ -93,10 +96,16 @@ export function ComplianceSummary() {
     () => getAnalysis(selectedDocumentId!),
     {
       refreshInterval: (latest) =>
-        isBackendOnline && shouldPollAnalysis(latest) ? 3000 : 0,
+        isBackendOnline && !notFoundRef.current && shouldPollAnalysis(latest)
+          ? 3000
+          : 0,
       revalidateOnFocus: true,
+      shouldRetryOnError: (err) => !(err instanceof AnalysisNotFoundError),
     }
   )
+
+  const isAnalysisMissing = error instanceof AnalysisNotFoundError && !data
+  notFoundRef.current = isAnalysisMissing
 
   async function handleCancel() {
     if (!selectedDocumentId) return
@@ -151,7 +160,7 @@ export function ComplianceSummary() {
     )
   }
 
-  if (!selectedDocumentId) {
+  if (!selectedDocumentId || isAnalysisMissing) {
     return (
       <Card>
         <CardHeader className="pb-3">
@@ -159,10 +168,11 @@ export function ComplianceSummary() {
             <ClipboardList className="h-4 w-4 text-primary" />
             Results
           </CardTitle>
+          <CardDescription>DPDP check</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            Select a document from the table.
+            Fill out the form and run a check to see your compliance results here.
           </p>
         </CardContent>
       </Card>
@@ -245,7 +255,7 @@ export function ComplianceSummary() {
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        {error && (
+        {error && !(error instanceof AnalysisNotFoundError) && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
             {error.message.includes("reach the server")
               ? error.message

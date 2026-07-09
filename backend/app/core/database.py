@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
+from app.core.logging import logger
 
 # Async engine: echo=True in debug mode for query logging
 engine = create_async_engine(
@@ -43,6 +44,7 @@ _DOCUMENT_FILE_COLUMNS: dict[str, str] = {
     "generated_policy_md": "TEXT",
     "generated_policy_filename": "VARCHAR(255)",
     "applicability_json": "TEXT",
+    "user_id": "VARCHAR(36)",
 }
 
 _ANALYSIS_COLUMNS: dict[str, str] = {
@@ -85,9 +87,19 @@ async def get_db() -> AsyncSession:
 
 async def init_db() -> None:
     """
-    Creates all database tables on application startup.
-    Called from the FastAPI lifespan handler in main.py.
+    Initialize the database schema on application startup.
+
+    SQLite (local dev): tables are created with create_all and patched in
+    place by _migrate_sqlite_schema. PostgreSQL (prod): schema is managed by
+    Alembic migrations (`alembic upgrade head`), so we do not create_all here.
     """
+    # Import models so they register on Base.metadata before create_all.
+    import app.models  # noqa: F401
+
+    if not settings.IS_SQLITE:
+        logger.info("Non-SQLite database detected; schema managed by Alembic.")
+        return
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _migrate_sqlite_schema(conn)

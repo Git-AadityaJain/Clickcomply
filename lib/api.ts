@@ -7,6 +7,7 @@
 
 import type { OrgProfile, ApplicabilityReport } from "@/lib/org-profile"
 import { parseFriendlyError, friendlyApiError } from "@/lib/friendly-errors"
+import { getAccessToken } from "@/lib/auth"
 
 export type { OrgProfile, ApplicabilityReport }
 
@@ -171,12 +172,23 @@ export async function listDocuments(): Promise<DocumentListItem[]> {
   return res.json()
 }
 
+/** Error thrown when a document/analysis no longer exists on the backend. */
+export class AnalysisNotFoundError extends Error {
+  constructor(message = "Analysis not found.") {
+    super(message)
+    this.name = "AnalysisNotFoundError"
+  }
+}
+
 /** GET /analysis/{document_id} */
 export async function getAnalysis(
   documentId: string
 ): Promise<ComplianceAnalysisResponse> {
   const res = await fetch(`${API_BASE}/analysis/${documentId}`)
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new AnalysisNotFoundError()
+    }
     throw new Error("We could not load the compliance results. Please try again.")
   }
   return res.json()
@@ -227,7 +239,8 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 /** SWR fetcher helper */
-export const fetcher = (url: string) => fetchJson(`${API_BASE}${url}`)
+export const fetcher = <T = unknown>(url: string): Promise<T> =>
+  fetchJson<T>(`${API_BASE}${url}`)
 
 /** Health endpoint fetcher (shared across dashboard) */
 export const healthFetcher = () => fetchJson<HealthResponse>(`${API_BASE}/health`)
@@ -325,6 +338,79 @@ export async function pruneSessionDocuments(
   if (!res.ok) {
     const detail = await parseErrorResponse(res, res.statusText, "general")
     throw new Error(detail)
+  }
+  return res.json()
+}
+
+/** ---- Auth (Phase 2) ---- */
+
+export interface TokenResponse {
+  access_token: string
+  refresh_token: string
+  token_type: string
+}
+
+export interface UserProfile {
+  full_name?: string | null
+  company_name?: string | null
+  phone?: string | null
+}
+
+export interface AuthUser {
+  id: string
+  email: string
+  is_active: boolean
+  created_at: string
+  last_login_at?: string | null
+  profile?: UserProfile | null
+}
+
+/** Bearer header for authenticated requests (empty when not signed in). */
+export function authHeaders(): Record<string, string> {
+  const token = getAccessToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+/** POST /auth/login */
+export async function loginUser(
+  email: string,
+  password: string
+): Promise<TokenResponse> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, "Incorrect email or password.", "general")
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+/** POST /auth/register */
+export async function registerUser(
+  email: string,
+  password: string,
+  fullName?: string
+): Promise<TokenResponse> {
+  const res = await fetch(`${API_BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, full_name: fullName || null }),
+  })
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res, "We could not create your account.", "general")
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+/** GET /auth/me */
+export async function getCurrentUser(): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() })
+  if (!res.ok) {
+    throw new Error("We could not load your account.")
   }
   return res.json()
 }

@@ -9,8 +9,10 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_request_user
 from app.core.logging import logger
 from app.core.config import settings
+from app.models.user import User
 from app.schemas.document import (
     DocumentIngestRequest,
     DocumentIngestResponse,
@@ -61,10 +63,15 @@ def _to_list_item(document) -> DocumentListItem:
     return item
 
 
+def _user_id(current_user: User | None) -> str | None:
+    return current_user.id if current_user else None
+
+
 @router.post("/ingest", response_model=DocumentIngestResponse, status_code=status.HTTP_201_CREATED)
 async def ingest(
     payload: DocumentIngestRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> DocumentIngestResponse:
     logger.info(f"Ingest request: {payload.org_profile.legal_name}")
     document, applicability = await ingest_document(
@@ -72,6 +79,7 @@ async def ingest(
         org_profile=payload.org_profile,
         document_name=payload.document_name,
         document_type=payload.document_type,
+        user_id=_user_id(current_user),
     )
     return DocumentIngestResponse(
         document_id=document.id,
@@ -83,23 +91,36 @@ async def ingest(
 
 
 @router.get("/{document_id}/status", response_model=DocumentStatusResponse)
-async def get_status(document_id: str, db: AsyncSession = Depends(get_db)) -> DocumentStatusResponse:
-    document = await get_document_by_id(db, document_id)
+async def get_status(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
+) -> DocumentStatusResponse:
+    document = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
     if document is None:
         raise HTTPException(status_code=404, detail="Review not found.")
     return DocumentStatusResponse(document_id=document.id, status=_display_status(document.status))
 
 
 @router.get("", response_model=list[DocumentListItem])
-async def list_documents(db: AsyncSession = Depends(get_db)) -> list[DocumentListItem]:
-    documents = await get_all_documents(db)
+async def list_documents(
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
+) -> list[DocumentListItem]:
+    documents = await get_all_documents(db, user_id=_user_id(current_user))
     return [_to_list_item(doc) for doc in documents]
 
 
 @router.post("/prune-session", response_model=PruneSessionResponse)
-async def prune_session(payload: PruneSessionRequest) -> PruneSessionResponse:
+async def prune_session(
+    payload: PruneSessionRequest,
+    current_user: User | None = Depends(get_request_user),
+) -> PruneSessionResponse:
     """Remove reviews not marked to keep (browser refresh / new visit)."""
-    removed_ids = await clear_ephemeral_uploads(set(payload.keep_document_ids))
+    removed_ids = await clear_ephemeral_uploads(
+        set(payload.keep_document_ids),
+        owner_id=_user_id(current_user),
+    )
     return PruneSessionResponse(
         removed_count=len(removed_ids),
         removed_ids=removed_ids,
@@ -107,8 +128,12 @@ async def prune_session(payload: PruneSessionRequest) -> PruneSessionResponse:
 
 
 @router.get("/{document_id}/applicability", response_model=ApplicabilityResponse)
-async def get_applicability(document_id: str, db: AsyncSession = Depends(get_db)) -> ApplicabilityResponse:
-    document = await get_document_by_id(db, document_id)
+async def get_applicability(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
+) -> ApplicabilityResponse:
+    document = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
     if document is None or not document.applicability_json:
         raise HTTPException(status_code=404, detail="Applicability information not found.")
     report = ApplicabilityReport.model_validate_json(document.applicability_json)
@@ -120,9 +145,12 @@ async def post_generate_policy(
     document_id: str,
     payload: GeneratePolicyRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> GeneratePolicyResponse:
     try:
-        document = await generate_policy_file(db, document_id, payload.format)
+        document = await generate_policy_file(
+            db, document_id, payload.format, user_id=_user_id(current_user)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -138,8 +166,12 @@ async def post_generate_policy(
 
 
 @router.get("/{document_id}/suggested-policy/download")
-async def download_suggested_policy(document_id: str, db: AsyncSession = Depends(get_db)):
-    document = await get_document_by_id(db, document_id)
+async def download_suggested_policy(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
+):
+    document = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
     if document is None or not document.generated_policy_filename:
         raise HTTPException(status_code=404, detail="No suggested policy file is available yet.")
 
@@ -160,9 +192,15 @@ async def update_remember(
     document_id: str,
     payload: DocumentRememberUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> DocumentListItem:
     try:
-        document = await set_document_remember(db=db, document_id=document_id, remember=payload.remember)
+        document = await set_document_remember(
+            db=db,
+            document_id=document_id,
+            remember=payload.remember,
+            user_id=_user_id(current_user),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _to_list_item(document)
@@ -175,6 +213,7 @@ async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> DocumentListItem:
     try:
         if not file.filename:
@@ -191,6 +230,7 @@ async def upload_file(
             file_content=content,
             original_filename=file.filename,
             uploader_ip=uploader_ip,
+            user_id=_user_id(current_user),
         )
         background_tasks.add_task(run_and_persist_analysis, document_id)
         return _to_list_item(document)
@@ -206,8 +246,12 @@ async def analyze_draft(
     document_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> DocumentStatusResponse:
     """Queue compliance analysis against the generated policy draft (no file upload needed)."""
+    owned = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Review not found.")
     try:
         result = await trigger_draft_analysis(document_id, db)
     except ValueError as exc:

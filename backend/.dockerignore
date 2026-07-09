@@ -1,0 +1,11 @@
+venv/
+**/__pycache__/
+*.pyc
+*.pyo
+uploads/
+chroma_data/
+*.db
+.session_state.json
+.env
+.env.*
+README.md

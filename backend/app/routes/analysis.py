@@ -11,7 +11,9 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_request_user
 from app.core.logging import logger
+from app.models.user import User
 from app.schemas.analysis import AnalysisRerunResponse, ComplianceAnalysisResponse, AnalysisCancelResponse
 from app.services.analysis_service import (
     get_compliance_analysis,
@@ -23,6 +25,10 @@ from app.services.review_pdf_exporter import export_review_pdf
 from app.services.document_service import get_document_by_id
 
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
+
+
+def _user_id(current_user: User | None) -> str | None:
+    return current_user.id if current_user else None
 
 
 @router.get(
@@ -37,9 +43,10 @@ router = APIRouter(prefix="/analysis", tags=["Analysis"])
 async def get_analysis(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> ComplianceAnalysisResponse:
     """Return compliance analysis for a given document."""
-    document = await get_document_by_id(db, document_id)
+    document = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
 
     if document is None:
         logger.warning(f"Analysis requested for unknown document: {document_id}")
@@ -69,8 +76,12 @@ async def rerun_analysis(
     document_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> AnalysisRerunResponse:
     """Re-run compliance analysis in the background."""
+    owned = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
+    if owned is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     try:
         result = await trigger_analysis_rerun(document_id, db)
     except ValueError as exc:
@@ -94,7 +105,11 @@ async def rerun_analysis(
 async def cancel_running_analysis(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ) -> AnalysisCancelResponse:
+    owned = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Review not found.")
     try:
         result = await cancel_analysis(document_id, db)
     except ValueError as exc:
@@ -109,8 +124,9 @@ async def cancel_running_analysis(
 async def download_review_report(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_request_user),
 ):
-    document = await get_document_by_id(db, document_id)
+    document = await get_document_by_id(db, document_id, user_id=_user_id(current_user))
     if document is None:
         raise HTTPException(status_code=404, detail="Review not found.")
 

@@ -42,17 +42,24 @@ async def _delete_document_record(db, document: Document) -> None:
 
 async def clear_ephemeral_uploads(
     keep_document_ids: set[str] | None = None,
+    owner_id: str | None = None,
 ) -> list[str]:
-    """Remove documents not marked remember, including files and vector chunks."""
+    """
+    Remove documents not marked remember, including files and vector chunks.
+
+    When owner_id is provided, only that user's documents are considered, so
+    one user's prune never touches another user's reviews.
+    """
     keep_ids = keep_document_ids or set()
     removed_ids: list[str] = []
 
     async with async_session() as db:
-        result = await db.execute(
-            select(Document).where(
-                or_(Document.remember.is_(False), Document.remember.is_(None))
-            )
+        stmt = select(Document).where(
+            or_(Document.remember.is_(False), Document.remember.is_(None))
         )
+        if owner_id is not None:
+            stmt = stmt.where(Document.user_id == owner_id)
+        result = await db.execute(stmt)
         ephemeral = list(result.scalars().all())
 
         if not ephemeral:

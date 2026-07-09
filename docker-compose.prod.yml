@@ -1,0 +1,46 @@
+# Production overlay: swaps SQLite for PostgreSQL, runs Alembic migrations on
+# startup, and enables auth. Use together with the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+#
+# Required env (see .env.prod.example): JWT_SECRET. Postgres creds and
+# CORS_ORIGINS have sane defaults but should be overridden for real deployments.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: clickcomply-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clickcomply}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clickcomply}
+      POSTGRES_DB: ${POSTGRES_DB:-clickcomply}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clickcomply}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  backend:
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-clickcomply}:${POSTGRES_PASSWORD:-clickcomply}@db:5432/${POSTGRES_DB:-clickcomply}
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set for production}
+      - JWT_ACCESS_TTL_MINUTES=${JWT_ACCESS_TTL_MINUTES:-15}
+      - JWT_REFRESH_TTL_DAYS=${JWT_REFRESH_TTL_DAYS:-7}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - DEBUG=false
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    # Apply migrations before serving so a fresh Postgres gets its schema.
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

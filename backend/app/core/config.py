@@ -38,16 +38,36 @@ class Settings:
     )
 
     # Database: defaults to SQLite for local development.
+    # For production set e.g.
+    #   DATABASE_URL=postgresql+asyncpg://user:pass@db:5432/clickcomply
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"sqlite+aiosqlite:///{(_BACKEND_ROOT / 'clickcomply.db').as_posix()}",
     )
 
-    # CORS: allowed origins for the frontend
+    @property
+    def IS_SQLITE(self) -> bool:
+        return self.DATABASE_URL.startswith("sqlite")
+
+    # CORS: allowed origins for the frontend. Override via comma-separated
+    # CORS_ORIGINS env var in production.
     CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if origin.strip()
     ]
+
+    # Auth / security (Phase 2)
+    # REQUIRE_AUTH=false keeps the open local-dev workflow (documents are not
+    # user-scoped); set true in staging/prod to force login on every route.
+    REQUIRE_AUTH: bool = os.getenv("REQUIRE_AUTH", "false").lower() == "true"
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "dev-insecure-change-me")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_ACCESS_TTL_MINUTES: int = int(os.getenv("JWT_ACCESS_TTL_MINUTES", "15"))
+    JWT_REFRESH_TTL_DAYS: int = int(os.getenv("JWT_REFRESH_TTL_DAYS", "7"))
 
     # File upload settings
     UPLOAD_DIR: str = os.getenv(

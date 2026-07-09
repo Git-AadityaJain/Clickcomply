@@ -40,6 +40,7 @@ async def ingest_document(
     org_profile: OrgProfile,
     document_name: str | None = None,
     document_type: str = "privacy_policy",
+    user_id: str | None = None,
 ) -> tuple[Document, ApplicabilityReport]:
     """Ingest a compliance review with organization processing profile."""
     doc_id = generate_uuid()
@@ -54,6 +55,7 @@ async def ingest_document(
         status="AWAITING_UPLOAD",
         org_profile_json=org_profile.model_dump_json(),
         applicability_json=applicability.model_dump_json(),
+        user_id=user_id,
     )
 
     db.add(document)
@@ -64,33 +66,37 @@ async def ingest_document(
     return document, applicability
 
 
-async def get_document_by_id(db: AsyncSession, document_id: str) -> Document | None:
+async def get_document_by_id(
+    db: AsyncSession,
+    document_id: str,
+    user_id: str | None = None,
+) -> Document | None:
     """
     Retrieve a single document by its UUID.
 
-    Args:
-        db: Active database session.
-        document_id: UUID of the document.
-
-    Returns:
-        The Document instance, or None if not found.
+    When user_id is provided, the document is only returned if it belongs to
+    that user (so callers see a 404 for documents they do not own).
     """
-    result = await db.execute(
-        select(Document).where(Document.id == document_id)
-    )
+    stmt = select(Document).where(Document.id == document_id)
+    if user_id is not None:
+        stmt = stmt.where(Document.user_id == user_id)
+    result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
 
-async def get_all_documents(db: AsyncSession) -> list[Document]:
+async def get_all_documents(
+    db: AsyncSession,
+    user_id: str | None = None,
+) -> list[Document]:
     """
-    Retrieve all documents ordered by creation date (newest first).
+    Retrieve documents ordered by creation date (newest first).
 
-    Returns:
-        List of Document instances.
+    When user_id is provided, only that user's documents are returned.
     """
-    result = await db.execute(
-        select(Document).order_by(Document.created_at.desc())
-    )
+    stmt = select(Document).order_by(Document.created_at.desc())
+    if user_id is not None:
+        stmt = stmt.where(Document.user_id == user_id)
+    result = await db.execute(stmt)
     return list(result.scalars().all())
 
 
@@ -100,6 +106,7 @@ async def save_document_file(
     file_content: bytes,
     original_filename: str,
     uploader_ip: str | None = None,
+    user_id: str | None = None,
 ) -> Document:
     """
     Save an uploaded file to disk and update document metadata.
@@ -125,7 +132,7 @@ async def save_document_file(
         IOError: If file cannot be saved.
     """
     # Get document
-    document = await get_document_by_id(db, document_id)
+    document = await get_document_by_id(db, document_id, user_id=user_id)
     if not document:
         raise ValueError(f"Document {document_id} not found")
 
@@ -171,9 +178,10 @@ async def set_document_remember(
     db: AsyncSession,
     document_id: str,
     remember: bool,
+    user_id: str | None = None,
 ) -> Document:
     """Toggle whether a document should survive server restarts."""
-    document = await get_document_by_id(db, document_id)
+    document = await get_document_by_id(db, document_id, user_id=user_id)
     if not document:
         raise ValueError(f"Document {document_id} not found")
 
@@ -188,9 +196,10 @@ async def generate_policy_file(
     db: AsyncSession,
     document_id: str,
     file_format: str = "docx",
+    user_id: str | None = None,
 ) -> Document:
     """Generate a DPDP-aligned policy draft as DOCX or PDF on demand."""
-    document = await get_document_by_id(db, document_id)
+    document = await get_document_by_id(db, document_id, user_id=user_id)
     profile = parse_org_profile(document)
     if not document or not profile:
         raise ValueError("Review not found or questionnaire missing.")
